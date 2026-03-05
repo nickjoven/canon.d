@@ -1,0 +1,15 @@
+[package]
+name = "canon_d"
+version = "0.1.0"
+edition = "2021"
+description = "Canonical serialization layer for content-addressed substrates"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+blake3 = "1"
+thiserror = "2"
+
+[dev-dependencies]
+ket-cas = { path = "../ket/ket-cas" }
+ket-dag = { path = "../ket/ket-dag" }
