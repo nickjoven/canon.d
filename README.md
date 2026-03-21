@@ -1,6 +1,8 @@
 # canon.d
 
-Canonical serialization layer for content-addressed substrates.
+**Purpose:** Canonical serialization layer that ensures semantically identical structured data produces byte-identical output, so content-addressing ([ket](https://github.com/nickjoven/ket)) actually deduplicates equivalent knowledge. Three operations: Write (canonicalize), Read (traverse), Topology (emergent structure).
+
+---
 
 canon.d sits between agents and `ket put`. It ensures that semantically identical structured data produces byte-identical output, so content-addressing actually deduplicates equivalent knowledge.
 
