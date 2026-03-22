@@ -167,6 +167,7 @@ dependencies = [
 [[package]]
 name = "ket-cas"
 version = "0.1.0"
+source = "git+https://github.com/nickjoven/ket.git#168c54af25ff454c0bc79b628df558af28aea5b9"
 dependencies = [
  "blake3",
  "serde",
@@ -176,6 +177,7 @@ dependencies = [
 [[package]]
 name = "ket-dag"
 version = "0.1.0"
+source = "git+https://github.com/nickjoven/ket.git#168c54af25ff454c0bc79b628df558af28aea5b9"
 dependencies = [
  "base64",
  "chrono",
