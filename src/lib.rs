@@ -30,4 +30,4 @@ pub use cross_topology::{CrossTopologyView, DomainBridge, Disagreement, Transiti
 pub use domain::Domain;
 pub use mapping::{Direction, Mapping, MappingBuilder, mapping_schema};
 pub use schema::{Field, FieldKind, Schema};
-pub use topology::{Cluster, TopologyView};
+pub use topology::{Cluster, NodeInfo, TopologyView};
