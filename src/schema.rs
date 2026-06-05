@@ -27,11 +27,31 @@ pub enum FieldKind {
     Cid,
     /// Nested object conforming to another schema (by CID).
     Ref(std::string::String),
-    /// Ordered list of values (homogeneous kind).
+    /// Ordered list of values (homogeneous kind). Order is significant.
     List(Box<FieldKind>),
+    /// **Unordered** set of values (homogeneous kind): canonicalized by sorting
+    /// and de-duplicating, so `[A, B]` and `[B, A]` produce identical bytes. This
+    /// is what makes the split-edge decision sound — a claim's grounding *targets*
+    /// are a set (`Set(Cid)`), so the grounding topology binds identity without
+    /// letting target order spuriously fork the CID.
+    Set(Box<FieldKind>),
 }
 
 /// A single field in a schema.
+///
+/// Every field plays exactly one of three **roles**, decided by the two-question
+/// rule (`ket/DESIGN.md`): *"if I delete it, how is it re-derived?"* and *"what do
+/// I diff it against?"*
+///
+/// - **Identity** (`identity == true`): binds the record's CID. The canonical,
+///   gauge-fixed structure — "if I change this, it's a different concept."
+/// - **Witness** (`witness == true`): a quantity recomputed *independently* of the
+///   canonicalizer (an invariant, a checker verdict, a dimension). It does **not**
+///   bind the CID; it is the thing the cross-audit diffs the identity against. The
+///   dual route from `gnosis/invariant.py`, given a principled home.
+/// - **Projection** (neither flag): detachable names, prose, the NL source
+///   utterance, attribution. Canonicalized for transport but binds nothing and
+///   audits nothing. (`identity` and `witness` are mutually exclusive.)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Field {
     /// Field name. Must be unique within the schema.
@@ -45,6 +65,12 @@ pub struct Field {
     /// two records represent "the same thing." Non-identity fields are
     /// still canonicalized but don't affect sameness judgments.
     pub identity: bool,
+    /// Is this field a **witness**? Witness fields are recomputed independently
+    /// of the canonical form and checked against it by the cross-audit; they are
+    /// never identity-bearing. Defaults to `false` so schemas authored before the
+    /// witness tier deserialize unchanged.
+    #[serde(default)]
+    pub witness: bool,
 }
 
 /// A schema for canonical serialization.
@@ -73,35 +99,52 @@ impl Schema {
         }
     }
 
-    /// Add a required, identity-bearing field.
+    /// Add a required, identity-bearing field. (Role: **Identity**.)
     pub fn identity(mut self, name: &str, kind: FieldKind) -> Self {
         self.fields.push(Field {
             name: name.to_string(),
             kind,
             required: true,
             identity: true,
+            witness: false,
         });
         self
     }
 
-    /// Add a required, non-identity field.
+    /// Add a required, non-identity field. (Role: **Projection**.)
     pub fn required(mut self, name: &str, kind: FieldKind) -> Self {
         self.fields.push(Field {
             name: name.to_string(),
             kind,
             required: true,
             identity: false,
+            witness: false,
         });
         self
     }
 
-    /// Add an optional, non-identity field.
+    /// Add an optional, non-identity field. (Role: **Projection**.)
     pub fn optional(mut self, name: &str, kind: FieldKind) -> Self {
         self.fields.push(Field {
             name: name.to_string(),
             kind,
             required: false,
             identity: false,
+            witness: false,
+        });
+        self
+    }
+
+    /// Add a required **witness** field — recomputed independently of the
+    /// canonical form and checked against it by the cross-audit. Never
+    /// identity-bearing. (Role: **Witness**.)
+    pub fn witness(mut self, name: &str, kind: FieldKind) -> Self {
+        self.fields.push(Field {
+            name: name.to_string(),
+            kind,
+            required: true,
+            identity: false,
+            witness: true,
         });
         self
     }
@@ -109,6 +152,11 @@ impl Schema {
     /// Return only the identity-bearing fields.
     pub fn identity_fields(&self) -> Vec<&Field> {
         self.fields.iter().filter(|f| f.identity).collect()
+    }
+
+    /// Return only the witness fields.
+    pub fn witness_fields(&self) -> Vec<&Field> {
+        self.fields.iter().filter(|f| f.witness).collect()
     }
 
     /// Serialize the schema itself to canonical bytes.

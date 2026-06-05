@@ -108,6 +108,41 @@ impl<'a> Canon<'a> {
 
         Ok(serde_json::to_vec(&Value::Object(canonical))?)
     }
+
+    /// Extract only the witness-bearing fields, canonicalize them, return bytes.
+    ///
+    /// The witness is the value recomputed by a route independent of the
+    /// canonical form. The cross-audit compares this against a freshly recomputed
+    /// witness (self-audit of one record) and across records (under-merge
+    /// detection). Witness fields are required by construction, so an absent one
+    /// is an error, not an omission.
+    pub fn witness_projection(&self, input: &Value) -> Result<Vec<u8>, CanonError> {
+        let obj = input
+            .as_object()
+            .ok_or_else(|| CanonError::TypeMismatch {
+                field: "<root>".into(),
+                expected: "object".into(),
+                actual: type_name(input).into(),
+            })?;
+
+        let mut canonical = serde_json::Map::new();
+        for field in &self.schema.fields {
+            if !field.witness {
+                continue;
+            }
+            match obj.get(&field.name) {
+                Some(val) => {
+                    validate_type(&field.name, &field.kind, val)?;
+                    canonical.insert(field.name.clone(), normalize_value(&field.kind, val));
+                }
+                None => {
+                    return Err(CanonError::MissingField(field.name.clone()));
+                }
+            }
+        }
+
+        Ok(serde_json::to_vec(&Value::Object(canonical))?)
+    }
 }
 
 /// Check that a value matches the expected field kind.
@@ -118,7 +153,7 @@ fn validate_type(field_name: &str, kind: &FieldKind, val: &Value) -> Result<(), 
         FieldKind::Float => val.is_number(),
         FieldKind::Bool => val.is_boolean(),
         FieldKind::Ref(_) => val.is_string(), // stored as CID string
-        FieldKind::List(_) => val.is_array(),
+        FieldKind::List(_) | FieldKind::Set(_) => val.is_array(),
     };
     if ok {
         Ok(())
@@ -146,6 +181,25 @@ fn normalize_value(kind: &FieldKind, val: &Value) -> Value {
                         .map(|v| normalize_value(inner_kind, v))
                         .collect(),
                 )
+            } else {
+                val.clone()
+            }
+        }
+        FieldKind::Set(inner_kind) => {
+            if let Some(arr) = val.as_array() {
+                // Order-independent: normalize each element, then sort and dedup
+                // by canonical byte form so `[A,B]` and `[B,A]` collapse.
+                let mut normed: Vec<(Vec<u8>, Value)> = arr
+                    .iter()
+                    .map(|v| {
+                        let nv = normalize_value(inner_kind, v);
+                        let key = serde_json::to_vec(&nv).expect("value serializes");
+                        (key, nv)
+                    })
+                    .collect();
+                normed.sort_by(|a, b| a.0.cmp(&b.0));
+                normed.dedup_by(|a, b| a.0 == b.0);
+                Value::Array(normed.into_iter().map(|(_, v)| v).collect())
             } else {
                 val.clone()
             }

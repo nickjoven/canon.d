@@ -21,6 +21,7 @@ mod canon;
 pub mod cross_topology;
 pub mod domain;
 pub mod mapping;
+pub mod quantum;
 mod schema;
 mod topology;
 
@@ -29,5 +30,9 @@ pub use canon::{Canon, CanonError};
 pub use cross_topology::{CrossTopologyView, DomainBridge, Disagreement, TransitivePath};
 pub use domain::Domain;
 pub use mapping::{Direction, Mapping, MappingBuilder, mapping_schema};
+pub use quantum::{
+    CrossAuditConflict, EDGE_KINDS, Quantum, QuantumError, address, cross_audit,
+    edge_annotation_schema, schema_cid, validate_edge_kind,
+};
 pub use schema::{Field, FieldKind, Schema};
 pub use topology::{Cluster, NodeInfo, TopologyView};
