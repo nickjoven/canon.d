@@ -111,6 +111,56 @@ assert_eq!(
 
 This enables "upsert" semantics in a content-addressed world: same identity = same concept, new CID = updated understanding.
 
+## The quantum — the sealed unit of epistemic knowledge
+
+`identity` vs non-identity is a two-tier model. The `quantum` module makes it
+three-tier — the minimal sealed *claim*, with every field in exactly one role
+(decided by `ket/DESIGN.md`'s two-question rule):
+
+| Role | Binds CID? | Holds | Audits by |
+|------|:---------:|-------|-----------|
+| **Identity** | yes | canonical structure + grounding targets (`Set(Cid)`) | re-hash |
+| **Witness** | no | a value recomputed *independently* of the canonicalizer (an invariant, a checker verdict, a dimension) | cross-audit (re-derive + diff) |
+| **Projection** | no | names, prose, the NL source utterance, attribution | nothing — detachable |
+
+```rust
+use canon_d::{Schema, FieldKind, Quantum, cross_audit};
+
+let claim = Schema::new("ratio_claim", 1)
+    .identity("subject", FieldKind::String)
+    .identity("num", FieldKind::Integer)
+    .identity("den", FieldKind::Integer)
+    .identity("grounds", FieldKind::Set(Box::new(FieldKind::Cid))) // edge TARGETS bind identity
+    .witness("value", FieldKind::Float)                            // the independent check
+    .optional("label", FieldKind::String);                         // projection — never binds
+
+// Two human framings of one structural claim collapse to one CID.
+let a = Quantum::seal(&claim, &serde_json::json!(
+    {"subject":"omega_lambda","num":13,"den":19,"grounds":["m"],"value":0.6842,"label":"Stern-Brocot"})).unwrap();
+let b = Quantum::seal(&claim, &serde_json::json!(
+    {"subject":"omega_lambda","num":13,"den":19,"grounds":["m"],"value":0.6842,"label":"Farey"})).unwrap();
+assert_eq!(a.cid, b.cid);
+```
+
+**The witness cross-audit** (`cross_audit`) is the native form of
+`gnosis/ingest.py`: one witness value resolving to two distinct identity CIDs is
+a canonicalizer **under-merge** — a bug dedup-by-form alone cannot see, because
+the forms genuinely differ. Schemas with no witness field are the *witness-free*
+tier: the honest residue that needs human review, not a check the substrate can
+fire on.
+
+### Split edges
+
+A typed epistemic edge is split. The edge **target** is an identity `Set(Cid)`
+on the claim (grounding topology binds the CID). The edge **kind**
+(`grounds`/`derives`/`proposes`/`supersedes`/`contradicts`) lives in a separate
+`edge_annotation_schema` quantum keyed on `(from, to, annotator)`, with `kind` as
+a *non-identity* field — so the same annotator re-typing an edge **supersedes**,
+and two annotators disagreeing **coexist** as a surfaced `Disagreement`. This
+resolves the one open L2 design choice in `ket/DESIGN.md` while satisfying both
+gnosis ("grounded-by-X is part of identity") and DESIGN.md ("an edge's kind must
+be correctable through the same lineage machinery").
+
 ## Relationship to ket
 
 canon.d is a ket companion, not a replacement:
