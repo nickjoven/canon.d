@@ -17,6 +17,7 @@
 //! It does not replace the store. It sits between the agent and `ket put`.
 
 pub mod alignment;
+pub mod bridge;
 mod canon;
 pub mod cross_topology;
 pub mod domain;
@@ -26,6 +27,10 @@ mod schema;
 mod topology;
 
 pub use alignment::{AlignConfig, AlignRationale, Candidate, align, candidates_to_mappings};
+pub use bridge::{
+    Structuring, Ungrounded, attestation_schema, ground_audit, needs_review, structure,
+    structuring_schema, utterance_schema,
+};
 pub use canon::{Canon, CanonError};
 pub use cross_topology::{CrossTopologyView, DomainBridge, Disagreement, TransitivePath};
 pub use domain::Domain;

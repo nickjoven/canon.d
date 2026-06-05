@@ -161,6 +161,38 @@ resolves the one open L2 design choice in `ket/DESIGN.md` while satisfying both
 gnosis ("grounded-by-X is part of identity") and DESIGN.md ("an edge's kind must
 be correctable through the same lineage machinery").
 
+## The NLP↔CID bridge
+
+`bridge` turns a natural-language utterance into a sealed, schema-structured
+claim. The principle: **NL is always Projection, never identity.** The bridge
+does not make language meaning-addressed — it makes the *structured object the
+language points to* addressable, and records the structuring step as a
+supersedable proposal a human can accept or re-structure.
+
+```rust
+use canon_d::{structure, attestation_schema, ground_audit, Quantum};
+
+// A grounding leaf that touches reality — witness-free; a human/instrument vouches.
+let att = Quantum::seal(&attestation_schema(), &serde_json::json!({
+    "instrument":"Planck","dataset":"2018","locator":"Table 2: Omega_Lambda",
+    "value":0.6847,"uncertainty":0.0073,"vouched_by":"nick"})).unwrap();
+
+// Two NL paraphrases, one structured claim grounded in the attestation.
+let body = serde_json::json!({"subject":"omega_lambda","num":13,"den":19,
+                              "grounds":[att.cid],"value":0.6842});
+let a = structure("the dark-energy fraction is thirteen nineteenths", "en", "claude", &cs, &body).unwrap();
+let b = structure("Omega_Lambda = 13/19", "en", "claude", &cs, &body).unwrap();
+assert_ne!(a.utterance.cid, b.utterance.cid); // paraphrases are distinct utterances
+assert_eq!(a.claim.cid, b.claim.cid);         // ... but one structured meaning
+```
+
+- **`utterance_schema`** — the NL source as a sealed projection blob (byte CID; paraphrases do *not* collapse).
+- **`structuring_schema`** — the emitter's proposal, keyed on `(utterance, annotator)` with `claim` as the correctable field: the same emitter re-structuring **supersedes**, two emitters **coexist** as a meaning-Disagreement. The one deliberate boundary where language→structure ambiguity lives.
+- **`attestation_schema`** — the grounding leaf; **witness-free by design** (reality is the witness, `vouched_by` records who attests). `needs_review` flags the witness-free tier — the honest human queue.
+- **`ground_audit`** — gnosis's `ungrounded` check: a claim whose grounds don't resolve is "about nothing."
+
+Run the whole pipeline end-to-end: `cargo run --example bridge_pipeline`.
+
 ## Relationship to ket
 
 canon.d is a ket companion, not a replacement:
