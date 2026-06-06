@@ -152,6 +152,20 @@ calibration knob (same unbuilt self-calibration loop as SPINE §8).
 | Certainty flows **down** the order: certify the strongest, coarsenings follow for free | `subsume::certainty_flows_down_the_order` |
 | Dethroning: a stronger claim makes a weaker incumbent redundant (the dissipation that fixes attention favoritism) | `subsume::stronger_claim_dethrones_weaker_incumbent` |
 
+## 5h. End-to-end journeys (`tests/`)
+
+Integration tests against the **public API only** (a separate crate — also
+validates the surface is complete). Cover the seams between layers and the
+system-level invariants no unit test reaches. Plan + status: `tests/PLAN.md`.
+
+| Criterion | Test |
+|---|---|
+| Every sealed quantum re-verifies (meta-contract, per node) | `e2e_rebuild::every_sealed_quantum_reverifies` |
+| One fact's CID threads every layer (generator → assertion → closure → regeneration) | `e2e_rebuild::one_fact_cid_threads_every_layer` |
+| **Rebuild bit-identical** across order / eager-vs-lazy / from scratch | `e2e_rebuild::rebuild_is_bit_identical_across_order_and_laziness` |
+
+(E2E-1 happy path, E2E-2 adversary, E2E-3 lifecycle, E2E-4 scale — planned, `tests/PLAN.md`.)
+
 ## 6. Bridge (`bridge.rs`)
 
 | Criterion | Test |
@@ -208,7 +222,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 117/117 green, 0 warnings
+cargo test          # all criteria above; must be 120/120 green (117 unit + 3 e2e), 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```
