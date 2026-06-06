@@ -131,6 +131,8 @@ pub enum EvalError {
     Arity { op: String, expected: usize, got: usize },
     #[error("malformed term: {0}")]
     Malformed(String),
+    #[error("integer overflow (the `Rat` value algebra is i64-bounded)")]
+    Overflow,
     #[error(transparent)]
     Quantum(#[from] QuantumError),
     #[error(transparent)]
@@ -138,6 +140,7 @@ pub enum EvalError {
 }
 
 fn gcd(a: i64, b: i64) -> i64 {
+    // callers guarantee a, b != i64::MIN, so abs is safe
     let (mut a, mut b) = (a.abs(), b.abs());
     while b != 0 {
         (a, b) = (b, a % b);
@@ -150,6 +153,10 @@ impl Rat {
         if den == 0 {
             return Err(EvalError::DivByZero);
         }
+        // i64::MIN has no positive magnitude — out of the toy algebra's domain.
+        if num == i64::MIN || den == i64::MIN {
+            return Err(EvalError::Overflow);
+        }
         let g = gcd(num, den);
         let (mut num, mut den) = (num / g, den / g);
         if den < 0 {
@@ -160,17 +167,35 @@ impl Rat {
     }
 
     /// The forced mediant: `(a.num+b.num)/(a.den+b.den)`, reduced. The Stern-Brocot
-    /// primitive — `mediant(2/3, 11/16) = 13/19`.
+    /// primitive — `mediant(2/3, 11/16) = 13/19`. Returns `Overflow` rather than
+    /// panicking/wrapping when the sum leaves i64.
     pub fn mediant(a: Rat, b: Rat) -> Result<Rat, EvalError> {
-        Rat::new(a.num + b.num, a.den + b.den)
+        let num = a.num.checked_add(b.num).ok_or(EvalError::Overflow)?;
+        let den = a.den.checked_add(b.den).ok_or(EvalError::Overflow)?;
+        Rat::new(num, den)
     }
 
     pub fn add(a: Rat, b: Rat) -> Result<Rat, EvalError> {
-        Rat::new(a.num * b.den + b.num * a.den, a.den * b.den)
+        let l = a.num.checked_mul(b.den).ok_or(EvalError::Overflow)?;
+        let r = b.num.checked_mul(a.den).ok_or(EvalError::Overflow)?;
+        let num = l.checked_add(r).ok_or(EvalError::Overflow)?;
+        let den = a.den.checked_mul(b.den).ok_or(EvalError::Overflow)?;
+        Rat::new(num, den)
     }
 
     pub fn mul(a: Rat, b: Rat) -> Result<Rat, EvalError> {
-        Rat::new(a.num * b.num, a.den * b.den)
+        let num = a.num.checked_mul(b.num).ok_or(EvalError::Overflow)?;
+        let den = a.den.checked_mul(b.den).ok_or(EvalError::Overflow)?;
+        Rat::new(num, den)
+    }
+
+    /// The exact reduced form as a canonical `"num/den"` string — the witness for
+    /// a ratio proposition. Exact (no float), and independent of the
+    /// *canonicalizer's reduction step*: it re-reduces, so it catches a form that
+    /// was left unreduced. (It is not independent of the underlying datum — for a
+    /// rational there is no such route; this is the same stance as `gnosis`.)
+    pub fn reduced_string(&self) -> String {
+        format!("{}/{}", self.num, self.den)
     }
 
     pub fn value(&self) -> f64 {
@@ -178,8 +203,10 @@ impl Rat {
     }
 }
 
-/// Evaluate a program term against its resolved inputs. Total over the finite AST
-/// (compose-only — no language-level recursion), deterministic, confluent.
+/// Evaluate a program term against its resolved inputs. Deterministic and
+/// confluent; total *into `Result`* — it always halts and never panics, returning
+/// `EvalError::Overflow` when a value leaves the i64 `Rat` algebra rather than
+/// wrapping. (The AST is finite and `walk`/`fold` descend on finite structures.)
 ///
 /// Grammar (canonical JSON):
 /// - `{"lit": [n, d]}` — a rational literal;
@@ -236,14 +263,26 @@ pub fn eval(term: &Value, inputs: &[Rat]) -> Result<Rat, EvalError> {
 /// The Stern-Brocot walk — the canonical structural-recursion generator. Folds
 /// mediant steps over a finite L/R path from the boundary `(0/1, 1/0)`: `L`
 /// lowers the upper bound to the running mediant, `R` raises the lower bound. The
-/// node's value is the final mediant. Total by construction (the path is finite);
-/// the `1/0` right boundary is held as a raw integer pair, reduced only at the end
-/// (Stern-Brocot mediants are already in lowest terms). `walk("")` is the root
-/// `1/1`; `walk("LRRLLLLL")` is `13/19`.
+/// node's value is the final mediant. `walk("")` is the root `1/1`;
+/// `walk("LRRLLLLL")` is `13/19`.
+///
+/// **Termination vs. domain.** The recursion terminates on any finite path
+/// (structural descent), but the running `(lo, hi)` pair grows ~Fibonacci, so a
+/// long path (≳90 moves) leaves i64. That returns `Overflow` — never panics or
+/// wraps — so `walk` is a *total function into `Result`*: total in the sense that
+/// matters for the substrate (no panic, no silent wrong answer), bounded in the
+/// values it can reach. The toy `Rat` algebra is i64; a bignum value algebra
+/// would lift the bound.
 pub fn walk(path: &str) -> Result<Rat, EvalError> {
     let (mut lo, mut hi) = ((0i64, 1i64), (1i64, 0i64));
+    let mediant = |a: (i64, i64), b: (i64, i64)| -> Result<(i64, i64), EvalError> {
+        Ok((
+            a.0.checked_add(b.0).ok_or(EvalError::Overflow)?,
+            a.1.checked_add(b.1).ok_or(EvalError::Overflow)?,
+        ))
+    };
     for c in path.chars() {
-        let m = (lo.0 + hi.0, lo.1 + hi.1);
+        let m = mediant(lo, hi)?;
         match c {
             'L' => hi = m,
             'R' => lo = m,
@@ -252,7 +291,8 @@ pub fn walk(path: &str) -> Result<Rat, EvalError> {
             }
         }
     }
-    Rat::new(lo.0 + hi.0, lo.1 + hi.1)
+    let m = mediant(lo, hi)?;
+    Rat::new(m.0, m.1)
 }
 
 /// Every Stern-Brocot node down to `depth`, by walking all `2^len` paths of each
@@ -370,7 +410,7 @@ pub fn project(
     let out = eval(program_term, &vals)?;
     let proposition = Quantum::seal(
         &proposition_schema(),
-        &json!({ "subject": subject, "num": out.num, "den": out.den, "value": out.value() }),
+        &json!({ "subject": subject, "num": out.num, "den": out.den, "value": out.reduced_string() }),
     )?;
 
     // The mandatory back-link. grounds = [generator] is non-empty by construction,
@@ -422,14 +462,14 @@ mod tests {
         // get by sealing 13/19 directly: the generated fact == the asserted fact.
         let mut memo = Memo::new();
         let inputs = [
-            (Quantum::seal(&proposition_schema(), &json!({"subject":"a","num":2,"den":3,"value":Rat::new(2,3).unwrap().value()})).unwrap().cid, Rat::new(2,3).unwrap()),
-            (Quantum::seal(&proposition_schema(), &json!({"subject":"b","num":11,"den":16,"value":Rat::new(11,16).unwrap().value()})).unwrap().cid, Rat::new(11,16).unwrap()),
+            (Quantum::seal(&proposition_schema(), &json!({"subject":"a","num":2,"den":3,"value":Rat::new(2,3).unwrap().reduced_string()})).unwrap().cid, Rat::new(2,3).unwrap()),
+            (Quantum::seal(&proposition_schema(), &json!({"subject":"b","num":11,"den":16,"value":Rat::new(11,16).unwrap().reduced_string()})).unwrap().cid, Rat::new(11,16).unwrap()),
         ];
         let prog = json!({"op":"mediant","args":[{"in":0},{"in":1}]});
         let p = project(&mut memo, &prog, &inputs, "omega_lambda", "claude").unwrap();
 
         let direct = Quantum::seal(&proposition_schema(), &json!({
-            "subject":"omega_lambda","num":13,"den":19,"value":Rat::new(13,19).unwrap().value()
+            "subject":"omega_lambda","num":13,"den":19,"value":Rat::new(13,19).unwrap().reduced_string()
         })).unwrap();
         assert_eq!(p.proposition.cid, direct.cid, "projection reproduces the fact bit-identically");
     }
@@ -500,6 +540,21 @@ mod tests {
     // --- Stage 2b: structural recursion ---
 
     #[test]
+    fn arithmetic_overflow_is_typed_not_panic() {
+        // i64::MIN is out of the toy algebra's domain → Overflow, not a panic.
+        assert!(matches!(eval(&json!({"lit":[i64::MIN, 6]}), &[]), Err(EvalError::Overflow)));
+        // mediant of two near-MAX rationals overflows the sum → Overflow.
+        let big = json!({"op":"mediant","args":[{"lit":[i64::MAX, 1]}, {"lit":[i64::MAX, 1]}]});
+        assert!(matches!(eval(&big, &[]), Err(EvalError::Overflow)));
+        // a long walk grows the running pair ~Fibonacci past i64 → Overflow, total
+        // into Result (no panic, no silent wrap).
+        let long: String = "LR".repeat(60);
+        assert!(matches!(walk(&long), Err(EvalError::Overflow)));
+        // but a path within the bound is fine.
+        assert!(walk("LRRLLLLL").is_ok());
+    }
+
+    #[test]
     fn walk_reproduces_stern_brocot_nodes() {
         assert_eq!(walk("").unwrap(), Rat { num: 1, den: 1 }, "empty path = the root 1/1");
         assert_eq!(walk("L").unwrap(), Rat { num: 1, den: 2 });
@@ -533,7 +588,7 @@ mod tests {
         let mut memo = Memo::new();
         let p = project(&mut memo, &json!({"walk":"LRRLLLLL"}), &[], "omega_lambda", "claude").unwrap();
         let direct = Quantum::seal(&proposition_schema(), &json!({
-            "subject":"omega_lambda","num":13,"den":19,"value":Rat::new(13,19).unwrap().value()
+            "subject":"omega_lambda","num":13,"den":19,"value":Rat::new(13,19).unwrap().reduced_string()
         })).unwrap();
         assert_eq!(p.proposition.cid, direct.cid);
     }

@@ -37,8 +37,8 @@ use crate::schema::{FieldKind, Schema};
 #[derive(Debug, thiserror::Error)]
 pub enum StrataError {
     /// An assertion was built with no grounds — a derived datum with no
-    /// provenance. The constructor refuses it, which is what makes silent drift
-    /// *unrepresentable* rather than merely auditable.
+    /// provenance. The constructor refuses it (provenance required at construction); whether the
+    /// grounds resolve against the corpus is checked separately at closure.
     #[error("a derived assertion must carry at least one ground (its provenance)")]
     NoProvenance,
     #[error(transparent)]
@@ -47,16 +47,20 @@ pub enum StrataError {
 
 /// The **proposition** schema: extensional content only.
 ///
-/// Identity: `subject` + the canonical value (`num`/`den`). Witness: `value`, the
-/// route-independent decimal, so corroboration is comparable across tellings.
-/// Crucially there is **no grounds field** — grounds live on the assertion. Two
-/// derivations of the same ratio seal to the *same* proposition CID.
+/// Identity: `subject` + `num`/`den`. Witness: `value`, the **exact reduced
+/// fraction string** (`"13/19"`) — *not* a float (a float collides above 2^53,
+/// producing false `UnderMerge`s; see `generator::Rat::reduced_string`). The
+/// witness re-reduces independently of the canonicalizer's reduction step, so two
+/// tellings whose forms differ only by reduction (`26/38` vs `13/19`) share one
+/// witness and the cross-audit catches a non-reducing canonicalizer. There is
+/// **no grounds field** — grounds live on the assertion — so two derivations of
+/// the same ratio seal to the *same* proposition CID.
 pub fn proposition_schema() -> Schema {
     Schema::new("proposition", 1)
         .identity("subject", FieldKind::String)
         .identity("num", FieldKind::Integer)
         .identity("den", FieldKind::Integer)
-        .witness("value", FieldKind::Float)
+        .witness("value", FieldKind::String)
 }
 
 /// The **assertion** schema: `(proposition, grounds, agent)`.
@@ -126,12 +130,15 @@ pub fn locked_fraction(schema: &Schema, quanta: &[Quantum]) -> f64 {
 /// Seal an **assertion** linking a proposition to its provenance — the mandatory
 /// back-link of `SPINE.md` §5, enforced as a *constructor invariant*.
 ///
-/// `grounds` are passed as **existing sealed quanta** (generators or
-/// attestations) and must be **non-empty**. Both facts make a derived datum
-/// without provenance unrepresentable: you cannot name a ground that does not
-/// exist (you must hold the `&Quantum`), and you cannot name *zero* grounds
-/// (`NoProvenance`). There is no path to an assertion that floats free of what
-/// produced it — silent drift is abolished here, not policed downstream.
+/// `grounds` are passed as **existing sealed quanta** and must be **non-empty**.
+/// This is what the *constructor* guarantees: you cannot mint an assertion with
+/// zero grounds (`NoProvenance`), and each ground is a quantum you actually hold
+/// (no fabricated CIDs). It does **not** check that a ground is a *relevant*
+/// generator/attestation, nor that it resolves against the live corpus — that is
+/// [`admissible_propositions`], the closure check. So provenance is *required at
+/// construction* and *resolved at closure*: a derived datum can have no
+/// provenance field, but verifying the provenance still points at known boundary
+/// is downstream. (Earlier drafts overstated this as "abolished, not policed.")
 pub fn seal_assertion(
     proposition: &Quantum,
     grounds: &[&Quantum],
@@ -187,8 +194,8 @@ mod tests {
         // The defect's input, fixed: two independent derivations of one fact,
         // grounds NOT here, collapse to one proposition CID — cross_audit clean.
         let s = proposition_schema();
-        let a = Quantum::seal(&s, &json!({"subject":"omega_lambda","num":13,"den":19,"value":0.6842})).unwrap();
-        let b = Quantum::seal(&s, &json!({"subject":"omega_lambda","num":13,"den":19,"value":0.6842})).unwrap();
+        let a = Quantum::seal(&s, &json!({"subject":"omega_lambda","num":13,"den":19,"value":"13/19"})).unwrap();
+        let b = Quantum::seal(&s, &json!({"subject":"omega_lambda","num":13,"den":19,"value":"13/19"})).unwrap();
         assert_eq!(a.cid, b.cid, "two tellings of one value → one proposition CID");
         assert!(
             cross_audit(&s, &[a, b]).unwrap().is_empty(),
@@ -202,8 +209,8 @@ mod tests {
         // but two distinct canonical forms (the reducer failed). At the
         // proposition level: two CIDs, one witness → UnderMerge still fires.
         let s = proposition_schema();
-        let reduced = Quantum::seal(&s, &json!({"subject":"r","num":13,"den":19,"value":0.6842})).unwrap();
-        let unreduced = Quantum::seal(&s, &json!({"subject":"r","num":26,"den":38,"value":0.6842})).unwrap();
+        let reduced = Quantum::seal(&s, &json!({"subject":"r","num":13,"den":19,"value":"13/19"})).unwrap();
+        let unreduced = Quantum::seal(&s, &json!({"subject":"r","num":26,"den":38,"value":"13/19"})).unwrap();
         assert_ne!(reduced.cid, unreduced.cid);
         let conflicts = cross_audit(&s, &[reduced, unreduced]).unwrap();
         assert!(
@@ -215,7 +222,7 @@ mod tests {
     #[test]
     fn corroboration_counts_distinct_agents() {
         let ps = proposition_schema();
-        let prop = Quantum::seal(&ps, &json!({"subject":"omega_lambda","num":13,"den":19,"value":0.6842})).unwrap();
+        let prop = Quantum::seal(&ps, &json!({"subject":"omega_lambda","num":13,"den":19,"value":"13/19"})).unwrap();
         let ass = assertion_schema();
         let a = Quantum::seal(&ass, &json!({"proposition":prop.cid,"grounds":["planck"],"agent":"claude"})).unwrap();
         let b = Quantum::seal(&ass, &json!({"proposition":prop.cid,"grounds":["wmap"],"agent":"gpt"})).unwrap();
@@ -230,14 +237,14 @@ mod tests {
     #[test]
     fn seal_assertion_rejects_empty_provenance() {
         let ps = proposition_schema();
-        let prop = Quantum::seal(&ps, &json!({"subject":"r","num":13,"den":19,"value":0.6842})).unwrap();
+        let prop = Quantum::seal(&ps, &json!({"subject":"r","num":13,"den":19,"value":"13/19"})).unwrap();
         // No grounds → unrepresentable. This is the §5 back-link as a constructor
         // invariant: you cannot assert a derived fact with no provenance.
         assert!(matches!(seal_assertion(&prop, &[], "claude"), Err(StrataError::NoProvenance)));
 
         // With a ground (here a stand-in generator quantum) it succeeds, and the
         // ground's CID is recorded.
-        let gen = Quantum::seal(&ps, &json!({"subject":"g","num":1,"den":1,"value":1.0})).unwrap();
+        let gen = Quantum::seal(&ps, &json!({"subject":"g","num":1,"den":1,"value":"1/1"})).unwrap();
         let a = seal_assertion(&prop, &[&gen], "claude").unwrap();
         let grounds = a.field("grounds").and_then(|v| v.as_array()).unwrap();
         assert_eq!(grounds.len(), 1);
@@ -247,8 +254,8 @@ mod tests {
     #[test]
     fn admissible_requires_resolving_grounds() {
         let ps = proposition_schema();
-        let prop = Quantum::seal(&ps, &json!({"subject":"r","num":13,"den":19,"value":0.6842})).unwrap();
-        let gen = Quantum::seal(&ps, &json!({"subject":"g","num":1,"den":1,"value":1.0})).unwrap();
+        let prop = Quantum::seal(&ps, &json!({"subject":"r","num":13,"den":19,"value":"13/19"})).unwrap();
+        let gen = Quantum::seal(&ps, &json!({"subject":"g","num":1,"den":1,"value":"1/1"})).unwrap();
         let a = seal_assertion(&prop, &[&gen], "claude").unwrap();
 
         // ground not yet known → proposition is "about nothing", excluded.
@@ -262,7 +269,7 @@ mod tests {
     #[test]
     fn locked_fraction_splits_on_witness() {
         let ps = proposition_schema();
-        let prop = Quantum::seal(&ps, &json!({"subject":"r","num":1,"den":2,"value":0.5})).unwrap();
+        let prop = Quantum::seal(&ps, &json!({"subject":"r","num":1,"den":2,"value":"1/2"})).unwrap();
         assert_eq!(locked_fraction(&ps, &[prop]), 1.0, "a witnessed proposition is locked");
 
         let ass = assertion_schema();

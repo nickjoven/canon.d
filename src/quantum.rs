@@ -7,11 +7,14 @@
 //! - **Identity (I)** — binds the CID. The canonical, gauge-fixed structure,
 //!   *including the grounding targets* (a `Set(Cid)` field), because a claim's
 //!   grounding topology is part of what it *is*. "Change this → different concept."
-//! - **Witness (W)** — a value recomputed by a route *independent* of the
-//!   canonicalizer (a rational's value-by-division, a polynomial fingerprint, a
-//!   unit's dimension, a checker verdict). It does **not** bind the CID; it is what
-//!   the cross-audit diffs identity against. This is `gnosis/invariant.py`'s dual
-//!   route, given a principled home.
+//! - **Witness (W)** — a value recomputed by a route independent of the
+//!   *canonicalizer's reduction step* (a rational's reduced form, a polynomial
+//!   fingerprint, a unit's dimension, a checker verdict). It must be **exact**, not
+//!   lossy — a float witness collides above 2^53 and yields false `UnderMerge`s.
+//!   It does **not** bind the CID; it is what the cross-audit diffs identity
+//!   against. This is `gnosis/invariant.py`'s dual route, given a principled home.
+//!   (Honest bound: for a rational there is no route independent of the underlying
+//!   datum — re-reduction catches an *unreduced canonical form*, not a wrong value.)
 //! - **Projection (P)** — detachable names, prose, the NL source utterance,
 //!   attribution. Canonicalized for transport, binds nothing, audits nothing.
 //!
@@ -129,6 +132,22 @@ impl Quantum {
         let fresh = canon.witness_projection(recomputed)?;
         Ok(sealed == fresh)
     }
+
+    /// **Self-audit** — the executable form of DESIGN.md's contract ("identity is
+    /// a function of content, so wrongness is detectable without an oracle"):
+    /// re-derive this quantum's address from its stored body + schema and confirm
+    /// it still equals `cid`. A tampered body, a wrong `schema_cid`, or a drifted
+    /// canonicalizer all fail it. This is the `verify_cas` primitive for an
+    /// in-memory quantum; cheap, and the cornerstone the substrate's honesty rests
+    /// on. Returns `false` (not `Err`) on a mismatch — the mismatch *is* the
+    /// finding.
+    pub fn verify(&self, schema: &Schema) -> Result<bool, QuantumError> {
+        if schema_cid(schema) != self.schema_cid {
+            return Ok(false);
+        }
+        let id = Canon::new(schema).identity_projection(&self.body)?;
+        Ok(address(&self.schema_cid, &id) == self.cid)
+    }
 }
 
 /// A cross-audit finding over a set of quanta — the native form of
@@ -231,7 +250,7 @@ mod tests {
             .identity("num", FieldKind::Integer)
             .identity("den", FieldKind::Integer)
             .identity("grounds", FieldKind::Set(Box::new(FieldKind::Cid)))
-            .witness("value", FieldKind::Float)
+            .witness("value", FieldKind::String)
             .optional("label", FieldKind::String)
             .optional("prose", FieldKind::String)
     }
@@ -242,11 +261,11 @@ mod tests {
         // Same structural claim, two human framings (the Stern-Brocot / Farey case).
         let a = Quantum::seal(&s, &json!({
             "subject":"omega_lambda","num":13,"den":19,"grounds":["m"],
-            "value":0.6842,"label":"Stern-Brocot depth-6 forcing","prose":"thirteen nineteenths"
+            "value":"13/19","label":"Stern-Brocot depth-6 forcing","prose":"thirteen nineteenths"
         })).unwrap();
         let b = Quantum::seal(&s, &json!({
             "subject":"omega_lambda","num":13,"den":19,"grounds":["m"],
-            "value":0.6842,"label":"Farey mediant 13/19","prose":"the dark-energy fraction"
+            "value":"13/19","label":"Farey mediant 13/19","prose":"the dark-energy fraction"
         })).unwrap();
         assert_eq!(a.cid, b.cid, "names/prose are projection — must not fork identity");
     }
@@ -255,10 +274,10 @@ mod tests {
     fn grounding_set_is_order_independent() {
         let s = claim_schema();
         let a = Quantum::seal(&s, &json!({
-            "subject":"x","num":1,"den":2,"grounds":["A","B"],"value":0.5
+            "subject":"x","num":1,"den":2,"grounds":["A","B"],"value":"1/2"
         })).unwrap();
         let b = Quantum::seal(&s, &json!({
-            "subject":"x","num":1,"den":2,"grounds":["B","A"],"value":0.5
+            "subject":"x","num":1,"den":2,"grounds":["B","A"],"value":"1/2"
         })).unwrap();
         assert_eq!(a.cid, b.cid, "grounding is a SET — target order must not fork identity");
     }
@@ -267,10 +286,10 @@ mod tests {
     fn different_grounding_forks_identity() {
         let s = claim_schema();
         let a = Quantum::seal(&s, &json!({
-            "subject":"x","num":1,"den":2,"grounds":["A"],"value":0.5
+            "subject":"x","num":1,"den":2,"grounds":["A"],"value":"1/2"
         })).unwrap();
         let b = Quantum::seal(&s, &json!({
-            "subject":"x","num":1,"den":2,"grounds":["A","B"],"value":0.5
+            "subject":"x","num":1,"den":2,"grounds":["A","B"],"value":"1/2"
         })).unwrap();
         assert_ne!(a.cid, b.cid, "grounding topology is structural — different grounds, different claim");
     }
@@ -282,10 +301,10 @@ mod tests {
         // DIFFERENT forms but the SAME witness value. Dedup sees nothing wrong
         // (the forms differ); the witness route catches it.
         let reduced = Quantum::seal(&s, &json!({
-            "subject":"r","num":13,"den":19,"grounds":["m"],"value":0.6842
+            "subject":"r","num":13,"den":19,"grounds":["m"],"value":"13/19"
         })).unwrap();
         let unreduced = Quantum::seal(&s, &json!({
-            "subject":"r","num":26,"den":38,"grounds":["m"],"value":0.6842
+            "subject":"r","num":26,"den":38,"grounds":["m"],"value":"13/19"
         })).unwrap();
         assert_ne!(reduced.cid, unreduced.cid, "the two forms genuinely differ");
 
@@ -305,10 +324,10 @@ mod tests {
         // the false positive so the proposition/assertion split has a target.
         let s = claim_schema();
         let via_planck = Quantum::seal(&s, &json!({
-            "subject":"omega_lambda","num":13,"den":19,"grounds":["planck"],"value":0.6842
+            "subject":"omega_lambda","num":13,"den":19,"grounds":["planck"],"value":"13/19"
         })).unwrap();
         let via_wmap = Quantum::seal(&s, &json!({
-            "subject":"omega_lambda","num":13,"den":19,"grounds":["wmap"],"value":0.6842
+            "subject":"omega_lambda","num":13,"den":19,"grounds":["wmap"],"value":"13/19"
         })).unwrap();
         assert_ne!(via_planck.cid, via_wmap.cid, "grounds-in-identity forks the two tellings");
 
@@ -323,11 +342,11 @@ mod tests {
     fn cross_audit_clean_when_forms_agree() {
         let s = claim_schema();
         let a = Quantum::seal(&s, &json!({
-            "subject":"r","num":13,"den":19,"grounds":["m"],"value":0.6842
+            "subject":"r","num":13,"den":19,"grounds":["m"],"value":"13/19"
         })).unwrap();
         // idempotent re-seal of the same meaning (different projection) — one node.
         let a2 = Quantum::seal(&s, &json!({
-            "subject":"r","num":13,"den":19,"grounds":["m"],"value":0.6842,"label":"again"
+            "subject":"r","num":13,"den":19,"grounds":["m"],"value":"13/19","label":"again"
         })).unwrap();
         assert_eq!(a.cid, a2.cid);
         assert!(cross_audit(&s, &[a, a2]).unwrap().is_empty(), "idempotent re-seal is not a conflict");
@@ -337,12 +356,12 @@ mod tests {
     fn witness_self_audit() {
         let s = claim_schema();
         let q = Quantum::seal(&s, &json!({
-            "subject":"r","num":13,"den":19,"grounds":["m"],"value":0.6842
+            "subject":"r","num":13,"den":19,"grounds":["m"],"value":"13/19"
         })).unwrap();
         // independent recomputation 13/19 = 0.6842 -> agrees
-        assert!(q.verify_witness(&s, &json!({"value":0.6842})).unwrap());
+        assert!(q.verify_witness(&s, &json!({"value":"13/19"})).unwrap());
         // a wrong recomputation -> disagrees (form vs invariant conflict)
-        assert!(!q.verify_witness(&s, &json!({"value":0.7000})).unwrap());
+        assert!(!q.verify_witness(&s, &json!({"value":"7/10"})).unwrap());
     }
 
     #[test]
@@ -381,5 +400,68 @@ mod tests {
     fn edge_kind_validation() {
         assert!(validate_edge_kind(&json!({"kind":"grounds"})).is_ok());
         assert!(validate_edge_kind(&json!({"kind":"causes"})).is_err());
+    }
+
+    // --- audit-driven coverage: the contract primitive and the untested paths ---
+
+    #[test]
+    fn verify_round_trips_and_detects_tamper() {
+        // The executable form of DESIGN.md's contract: a sealed quantum re-hashes
+        // to its own address; a tampered body does not.
+        let s = claim_schema();
+        let q = Quantum::seal(&s, &json!({
+            "subject":"r","num":13,"den":19,"grounds":["m"],"value":"13/19"
+        })).unwrap();
+        assert!(q.verify(&s).unwrap(), "a freshly sealed quantum verifies");
+
+        let mut tampered = q.clone();
+        tampered.body["num"] = json!(99); // mutate an identity field, keep the old cid
+        assert!(!tampered.verify(&s).unwrap(), "a tampered identity field fails verify");
+
+        // tampering a projection field does NOT change identity → still verifies
+        let mut relabeled = q.clone();
+        relabeled.body["label"] = json!("renamed");
+        assert!(relabeled.verify(&s).unwrap(), "projection edits don't break the address");
+    }
+
+    #[test]
+    fn witness_disagreement_is_caught() {
+        // Same identity (subject/num/den/grounds) → same CID, but two different
+        // witnesses → the substrate surfaces the disagreement rather than clobber.
+        let s = claim_schema();
+        let a = Quantum::seal(&s, &json!({
+            "subject":"r","num":13,"den":19,"grounds":["m"],"value":"13/19"
+        })).unwrap();
+        let b = Quantum::seal(&s, &json!({
+            "subject":"r","num":13,"den":19,"grounds":["m"],"value":"99/1"
+        })).unwrap();
+        assert_eq!(a.cid, b.cid, "same identity → one CID");
+        let conflicts = cross_audit(&s, &[a, b]).unwrap();
+        assert!(
+            conflicts.iter().any(|c| matches!(c, CrossAuditConflict::WitnessDisagreement { witnesses, .. } if witnesses.len() == 2)),
+            "one CID with two witnesses must surface as WitnessDisagreement, got {conflicts:?}"
+        );
+    }
+
+    #[test]
+    fn identity_is_schema_relative() {
+        // The same body under two different schemas addresses differently —
+        // meaning is schema-relative (the schema CID folds into the address).
+        let a = Schema::new("alpha", 1).identity("x", FieldKind::String);
+        let b = Schema::new("beta", 1).identity("x", FieldKind::String);
+        let qa = Quantum::seal(&a, &json!({"x":"v"})).unwrap();
+        let qb = Quantum::seal(&b, &json!({"x":"v"})).unwrap();
+        assert_ne!(qa.cid, qb.cid, "same body, different schema → different CID");
+        assert_ne!(qa.schema_cid, qb.schema_cid);
+    }
+
+    #[test]
+    fn serde_json_preserve_order_is_off() {
+        // Load-bearing build invariant: schema/quantum addresses are stable only
+        // while serde_json sorts object keys (preserve_order OFF). If this fails,
+        // a transitive dep enabled the feature and every CID has silently moved.
+        let v: Value = serde_json::from_str(r#"{"z":1,"a":2}"#).unwrap();
+        assert_eq!(serde_json::to_string(&v).unwrap(), r#"{"a":2,"z":1}"#,
+            "serde_json must sort keys (preserve_order must be OFF)");
     }
 }

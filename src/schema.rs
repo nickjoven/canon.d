@@ -161,10 +161,13 @@ impl Schema {
 
     /// Serialize the schema itself to canonical bytes.
     /// This is what you hash to get the schema CID.
+    ///
+    /// LOAD-BEARING BUILD DEPENDENCY: determinism here relies on `serde_json`'s
+    /// `Map` being a `BTreeMap` (sorted keys), which holds *only while the
+    /// `serde_json/preserve_order` feature is OFF*. If any crate in the build tree
+    /// enables `preserve_order`, every schema CID (and thus every quantum address)
+    /// silently changes. A `preserve_order`-off assertion guards this in the tests.
     pub fn to_canonical_bytes(&self) -> Vec<u8> {
-        // Schema serialization is itself canonical: serde_json with sorted
-        // keys isn't needed here because the struct field order is fixed
-        // by derive(Serialize). We just need deterministic output.
         serde_json::to_vec(self).expect("schema serialization cannot fail")
     }
 }
