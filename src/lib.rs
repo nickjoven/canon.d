@@ -19,6 +19,7 @@
 pub mod alignment;
 pub mod bridge;
 mod canon;
+pub mod chain;
 pub mod closure;
 pub mod cross_topology;
 pub mod domain;
@@ -35,6 +36,7 @@ pub use bridge::{
     structuring_schema, utterance_schema,
 };
 pub use canon::{Canon, CanonError};
+pub use chain::{consensus_root, verify_regeneration};
 pub use closure::Closure;
 pub use cross_topology::{CrossTopologyView, DomainBridge, Disagreement, TransitivePath};
 pub use domain::Domain;

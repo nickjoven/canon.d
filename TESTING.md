@@ -85,6 +85,15 @@ broken regardless of any other green test.
 | Corroboration is robustness — alternative grounding survives a retract | `closure::retract_keeps_alternative_grounding` |
 | A contested fact is excluded and cannot certify others (cautious core) | `closure::contested_is_excluded_and_propagates` |
 
+## 5c. Chain verification — consistency, end to end (`chain.rs`)
+
+| Criterion | Test |
+|---|---|
+| The full chain (anchor → generator → fact → closure) re-hashes and re-regenerates | `chain::full_chain_is_cryptographically_consistent_and_tamper_evident` |
+| The consensus root is order-independent (two verifiers agree by one hash) | same |
+| In-place tamper fails `verify`; substitution moves the consensus root | same |
+| A generator that did not produce a fact fails `verify_regeneration` | `chain::regeneration_mismatch_is_caught` |
+
 ## 6. Bridge (`bridge.rs`)
 
 | Criterion | Test |
@@ -121,6 +130,14 @@ oversights; a test that claimed them would be lying.
    seal time; `admissible_propositions` does that downstream.
 7. **`locked_fraction` is schema-homogeneous** (1.0 or 0.0 per call) — mixed-bag
    coverage is not yet computed.
+9. **Consistency is proven; accuracy is not.** `chain` verifies the chain is
+   internally faithful and reproducible (consistency) and roots it in its anchors,
+   but **no test claims a fact is true** — accuracy bottoms out at the anchors'
+   vouches. Two crypto constructs that would make accuracy *auditable* (still not
+   provable) are unbuilt: a **hash-chained / Merkle transparency log** (so "the log
+   wasn't rewritten" is verifiable — today the log is trusted) and **signed
+   attestations** (so each anchor's vouch is non-repudiable — today `vouched_by` is
+   a plain name).
 8. **Not built / not claimed:** the **subsumption order** (entailment via the
    witness decision procedures — the *stronger* dedup that catches a re-derivation
    of an already-entailed claim; the grounded closure in §5b is built, this is
@@ -131,7 +148,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 79/79 green, 0 warnings
+cargo test          # all criteria above; must be 81/81 green, 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```
