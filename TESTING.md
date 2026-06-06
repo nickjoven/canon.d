@@ -121,9 +121,12 @@ oversights; a test that claimed them would be lying.
    seal time; `admissible_propositions` does that downstream.
 7. **`locked_fraction` is schema-homogeneous** (1.0 or 0.0 per call) — mixed-bag
    coverage is not yet computed.
-8. **Not built / not claimed:** the entailment closure, the self-calibration loop,
-   user-defined recursion, cross-process determinism, and any Datalog/consensus
-   semantics. See `SPINE.md` open targets.
+8. **Not built / not claimed:** the **subsumption order** (entailment via the
+   witness decision procedures — the *stronger* dedup that catches a re-derivation
+   of an already-entailed claim; the grounded closure in §5b is built, this is
+   not), supersession as stratified negation, the self-calibration loop,
+   user-defined recursion, and cross-process determinism. See `SPINE.md` open
+   targets.
 
 ## Running
 
