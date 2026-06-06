@@ -105,6 +105,21 @@ broken regardless of any other green test.
 | The head commits to the whole history | `log::head_commits_to_history` |
 | An anchor is auditable iff a **trusted** party vouched **and** it was logged | `chain::anchor_accuracy_is_auditable_signed_and_logged` |
 
+## 5e. Edge typing — Lineage importer → closure (`lineage.rs`)
+
+| Criterion | Test |
+|---|---|
+| A `## Lineage` block parses into typed edges (`grounds`/`derives`/`proposes`) | `lineage::parses_typed_edges_from_lineage` |
+| A doc with no Lineage block yields no typed edges (untyped stays `references`) | `lineage::no_lineage_block_yields_no_typed_edges` |
+| Unknown kinds are skipped (no invented edges) | `lineage::unknown_kinds_are_skipped` |
+| Typed edges seal as valid `edge_annotation` quanta (the supersedable form) | `lineage::edges_seal_as_valid_edge_annotations` |
+| `grounds`/`derives` feed the closure as **certainty** (anchored ⇒ certain; no anchor ⇒ nothing; `references` grounds nothing) | `lineage::typed_grounds_feed_the_closure_as_certainty` |
+
+*Applies the capability; does not author content.* The real harmonics corpus has
+**0 / 285** docs with a Lineage block, so running this over it requires the lab to
+author the grounds/derives relations (domain judgment). The importer closes the
+mechanical gap — citation → certainty — once the content exists.
+
 ## 6. Bridge (`bridge.rs`)
 
 | Criterion | Test |
@@ -161,7 +176,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 89/89 green, 0 warnings
+cargo test          # all criteria above; must be 94/94 green, 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```
