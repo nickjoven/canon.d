@@ -162,9 +162,11 @@ system-level invariants no unit test reaches. Plan + status: `tests/PLAN.md`.
 |---|---|
 | Every sealed quantum re-verifies (meta-contract, per node) | `e2e_rebuild::every_sealed_quantum_reverifies` |
 | One fact's CID threads every layer (generator → assertion → closure → regeneration) | `e2e_rebuild::one_fact_cid_threads_every_layer` |
-| **Rebuild bit-identical** across order / eager-vs-lazy / from scratch | `e2e_rebuild::rebuild_is_bit_identical_across_order_and_laziness` |
-
-(E2E-1 happy path, E2E-2 adversary, E2E-3 lifecycle, E2E-4 scale — planned, `tests/PLAN.md`.)
+| **Rebuild bit-identical** across order / eager-vs-lazy / from scratch (E2E-5) | `e2e_rebuild::rebuild_is_bit_identical_across_order_and_laziness` |
+| **Happy path** (E2E-1): full pipeline — regenerate → ground → certify → audit → root; NL is projection | `e2e_happy.rs` (5 tests) |
+| **Adversary** (E2E-2): each corruption caught by its defense, composed — tamper/substitute/buggy-gen/forged-vouch/under-merge; corroboration stays clean | `e2e_adversary.rs` (6 tests) |
+| **Lifecycle** (E2E-3): dethroning, certainty-flows-down, non-monotone retract, contested-excluded | `e2e_lifecycle.rs` (4 tests) |
+| **Scale & laziness** (E2E-4): batch==eager, floored sound-under-approx, calibration drives the floor; final root invariant | `e2e_scale.rs` (3 tests) |
 
 ## 6. Bridge (`bridge.rs`)
 
@@ -222,7 +224,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 120/120 green (117 unit + 3 e2e), 0 warnings
+cargo test          # all criteria above; must be 138/138 green (117 unit + 21 e2e), 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```

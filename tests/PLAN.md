@@ -10,10 +10,10 @@ only).
 | # | Journey | Threads | Uniquely asserts | Status |
 |---|---|---|---|---|
 | **E2E-5** | **Rebuild bit-identical** — capture a consensus root, rebuild in different order / eager-vs-lazy / from scratch → identical | quantum, generator, strata, closure, chain | the meta-contract whole-system; one fact's CID threads every layer | ✅ `e2e_rebuild.rs` |
-| E2E-1 | **Happy path** — utterance/derivation → anchor → vouch+log → audit → regenerate → ground → certify → root | bridge, crypto, log, generator, strata, closure, chain | the full pipeline in one journey; seam consistency | planned |
-| E2E-2 | **Adversary** — inject each corruption (body tamper, forged vouch, rewritten log, substituted fact, buggy generator, unreduced form) and assert the matching defense fires *together* | all defenses | defenses compose — one path's fix doesn't blind another | planned |
-| E2E-3 | **Lifecycle** — loose claim certified → stronger forced claim dethrones it (subsumption) → retract anchor → subtree decertifies → contested excluded | subsume, closure, crypto/log | the certain core evolves correctly through a realistic edit history | planned |
-| E2E-4 | **Scale & laziness** — stage many deltas (warm-start fold) → floored settle defers to pending → calibrate floor → full settle recovers; root matches eager | closure (lazy/floored/calibrate), propagation | laziness/flooring never changes the *final* answer, only the path | planned |
+| E2E-1 | **Happy path** — utterance/derivation → anchor → vouch+log → audit → regenerate → ground → certify → root | bridge, crypto, log, generator, strata, closure, chain | the full pipeline in one journey; seam consistency | ✅ |
+| E2E-2 | **Adversary** — inject each corruption (body tamper, forged vouch, rewritten log, substituted fact, buggy generator, unreduced form) and assert the matching defense fires *together* | all defenses | defenses compose — one path's fix doesn't blind another | ✅ |
+| E2E-3 | **Lifecycle** — loose claim certified → stronger forced claim dethrones it (subsumption) → retract anchor → subtree decertifies → contested excluded | subsume, closure, crypto/log | the certain core evolves correctly through a realistic edit history | ✅ |
+| E2E-4 | **Scale & laziness** — stage many deltas (warm-start fold) → floored settle defers to pending → calibrate floor → full settle recovers; root matches eager | closure (lazy/floored/calibrate), propagation | laziness/flooring never changes the *final* answer, only the path | ✅ |
 
 ## Negative criteria (what e2e does NOT prove)
 
