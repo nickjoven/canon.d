@@ -42,6 +42,9 @@ pub struct Closure {
     admitted: BTreeSet<String>,
     /// Surfaced disagreement — excluded from the certain core by policy.
     contested: BTreeSet<String>,
+    /// Changes recorded but not yet cascaded (the lazy/batched path). `settle`
+    /// processes them; `pending` reports how many await.
+    staged: BTreeSet<String>,
 }
 
 impl Closure {
@@ -58,17 +61,116 @@ impl Closure {
         }
     }
 
+    /// Record a rule into the graph without admitting/cascading (shared by the
+    /// eager and lazy paths).
+    fn register(&mut self, head: &str, body: BTreeSet<String>) {
+        for g in &body {
+            self.dependents.entry(g.clone()).or_default().insert(head.to_string());
+        }
+        self.rules.entry(head.to_string()).or_default().push(body);
+    }
+
     /// Register a justification rule `head ⟸ body`. If it fires now, admit the
     /// head and cascade. Incremental: only the head and its dependents are touched.
     pub fn add_rule(&mut self, head: String, body: BTreeSet<String>) {
-        for g in &body {
-            self.dependents.entry(g.clone()).or_default().insert(head.clone());
-        }
         let fires = body.is_subset(&self.admitted);
-        self.rules.entry(head.clone()).or_default().push(body);
+        self.register(&head, body);
         if fires && !self.contested.contains(&head) && self.admitted.insert(head.clone()) {
             self.cascade(head);
         }
+    }
+
+    // --- Step 1: the lazy / batched path (defer, then settle once) ---
+
+    /// Stage an anchor without cascading. Pairs with [`settle`](Self::settle).
+    pub fn stage_anchor(&mut self, cid: &str) {
+        self.boundary.insert(cid.to_string());
+        self.staged.insert(cid.to_string());
+    }
+
+    /// Stage a rule without admitting/cascading. The change is recorded into the
+    /// graph but its consequences are deferred — the warm-start delta-fold: stage
+    /// every delta, settle once, instead of paying a cascade per delta.
+    pub fn stage_rule(&mut self, head: String, body: BTreeSet<String>) {
+        self.register(&head, body);
+        self.staged.insert(head);
+    }
+
+    /// How many staged changes await settling. Non-zero ⇒ `certain()` may be
+    /// behind; call [`settle`](Self::settle) for an up-to-date core. (This is what
+    /// keeps deferral from being silent: pending work is always queryable.)
+    pub fn pending(&self) -> usize {
+        self.staged.len()
+    }
+
+    /// Process all staged changes in one batched fixpoint, restricted to the
+    /// affected region (the staged nodes and their transitive dependents) — cost
+    /// ∝ the region touched, not the whole graph. After `settle`, `certain()` is
+    /// **exactly** what the eager path would have produced.
+    pub fn settle(&mut self) {
+        if self.staged.is_empty() {
+            return;
+        }
+        // affected = staged ∪ transitive dependents of staged
+        let mut affected: BTreeSet<String> = BTreeSet::new();
+        let mut stack: Vec<String> = self.staged.iter().cloned().collect();
+        while let Some(c) = stack.pop() {
+            if !affected.insert(c.clone()) {
+                continue;
+            }
+            if let Some(ds) = self.dependents.get(&c) {
+                for d in ds {
+                    if !affected.contains(d) {
+                        stack.push(d.clone());
+                    }
+                }
+            }
+        }
+        // staged anchors become certain
+        for c in &self.staged {
+            if self.boundary.contains(c) && !self.contested.contains(c) {
+                self.admitted.insert(c.clone());
+            }
+        }
+        // fixpoint over the affected region only
+        loop {
+            let mut changed = false;
+            for p in &affected {
+                if self.admitted.contains(p) || self.contested.contains(p) {
+                    continue;
+                }
+                if self.rules.get(p).is_some_and(|rs| rs.iter().any(|b| b.is_subset(&self.admitted))) {
+                    self.admitted.insert(p.clone());
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        self.staged.clear();
+    }
+
+    /// The **reach** of a node over this closure's own graph: how many nodes a
+    /// change to it would touch (itself + transitive dependents). This is the cost
+    /// the floor will gate (Step 2) — a high-reach node is the gravitational one
+    /// worth being lazy about.
+    pub fn reach(&self, cid: &str) -> usize {
+        let mut seen = BTreeSet::new();
+        let mut stack = vec![cid.to_string()];
+        while let Some(c) = stack.pop() {
+            if !seen.insert(c.clone()) {
+                continue;
+            }
+            if let Some(ds) = self.dependents.get(&c) {
+                for d in ds {
+                    if !seen.contains(d) {
+                        stack.push(d.clone());
+                    }
+                }
+            }
+        }
+        seen.len()
     }
 
     /// Register a justification from an `assertion` quantum (`proposition` +
@@ -250,6 +352,53 @@ mod tests {
         assert_eq!(c.support("P"), 1);
         c.retract("b");
         assert!(!c.is_certain("P"), "only when both anchors are gone");
+    }
+
+    // --- Step 1: lazy / batched path ---
+
+    #[test]
+    fn staged_then_settle_equals_eager() {
+        // eager reference
+        let mut eager = Closure::new();
+        eager.add_anchor("a");
+        eager.add_rule("P".into(), set(&["a"]));
+        eager.add_rule("Q".into(), set(&["P"]));
+
+        // lazy: stage everything, then settle once
+        let mut lazy = Closure::new();
+        lazy.stage_anchor("a");
+        lazy.stage_rule("P".into(), set(&["a"]));
+        lazy.stage_rule("Q".into(), set(&["P"]));
+        assert_eq!(lazy.pending(), 3, "three staged changes await settle");
+        assert!(lazy.certain().is_empty(), "nothing cascaded before settle");
+
+        lazy.settle();
+        assert_eq!(lazy.pending(), 0);
+        assert_eq!(lazy.certain(), eager.certain(), "batched settle == eager result");
+        assert_eq!(*lazy.certain(), set(&["a", "P", "Q"]));
+    }
+
+    #[test]
+    fn settle_is_idempotent_and_handles_late_anchor() {
+        let mut c = Closure::new();
+        c.stage_rule("Q".into(), set(&["P"])); // rule before its grounds exist
+        c.stage_rule("P".into(), set(&["a"]));
+        c.stage_anchor("a"); // anchor staged last
+        c.settle();
+        assert_eq!(*c.certain(), set(&["a", "P", "Q"]), "order-independent within a batch");
+        c.settle(); // no pending → no-op
+        assert_eq!(*c.certain(), set(&["a", "P", "Q"]));
+    }
+
+    #[test]
+    fn reach_is_the_cost_the_floor_will_gate() {
+        let mut c = Closure::new();
+        c.add_anchor("a");
+        c.add_rule("P".into(), set(&["a"]));
+        c.add_rule("Q".into(), set(&["P"]));
+        assert_eq!(c.reach("a"), 3, "a change at the anchor touches a, P, Q");
+        assert_eq!(c.reach("Q"), 1, "a change at the leaf touches only itself — cheap");
+        assert!(c.reach("a") > c.reach("Q"), "the anchor is gravitational; the leaf is local");
     }
 
     #[test]
