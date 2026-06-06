@@ -133,6 +133,8 @@ pub enum EvalError {
     Malformed(String),
     #[error(transparent)]
     Quantum(#[from] QuantumError),
+    #[error(transparent)]
+    Strata(#[from] crate::strata::StrataError),
 }
 
 fn gcd(a: i64, b: i64) -> i64 {
@@ -322,15 +324,20 @@ pub fn mdl(term: &Value) -> usize {
     }
 }
 
-/// The result of projecting a generator: the sealed generator and the proposition
-/// it produces. The proposition carries no generator in its identity (it is
-/// extensional — two generators producing one value share it; that is
-/// corroboration). The `generator → proposition` link is recorded by the caller
-/// as an assertion whose `grounds` contains `generator.cid`.
+/// The result of projecting a generator: the sealed generator, the proposition it
+/// produces, and the **assertion that links them** — the mandatory back-link.
+///
+/// The proposition carries no generator in its identity (it is extensional — two
+/// generators producing one value share it; that is corroboration). The
+/// `generator → proposition` link lives in `assertion`, sealed via
+/// [`crate::strata::seal_assertion`], so **projection cannot hand back a fact
+/// without its provenance**: there is no field-free path to a `Projection`.
 #[derive(Debug, Clone)]
 pub struct Projection {
     pub generator: Quantum,
     pub proposition: Quantum,
+    /// The back-link: an assertion whose `grounds` is `[generator.cid]`.
+    pub assertion: Quantum,
     pub program_cid: String,
 }
 
@@ -341,13 +348,16 @@ pub type Memo = HashMap<String, String>;
 
 /// Project a generator: seal the program, seal the generator quantum, evaluate the
 /// term against `inputs` (each a `(cid, value)` — the CID enters the generator's
-/// identity, the value drives evaluation), and seal the resulting `proposition`.
-/// Memoized on the generator CID.
+/// identity, the value drives evaluation), seal the resulting `proposition`, and
+/// seal the **mandatory back-link assertion** (`proposition ← generator`, by
+/// `agent`). Memoized on the generator CID. There is no way to obtain a projected
+/// proposition without its provenance — the back-link is part of the result.
 pub fn project(
     memo: &mut Memo,
     program_term: &Value,
     inputs: &[(String, Rat)],
     subject: &str,
+    agent: &str,
 ) -> Result<Projection, EvalError> {
     let (program_cid, _) = seal_program(program_term);
     let input_cids: Vec<&String> = inputs.iter().map(|(c, _)| c).collect();
@@ -363,8 +373,12 @@ pub fn project(
         &json!({ "subject": subject, "num": out.num, "den": out.den, "value": out.value() }),
     )?;
 
+    // The mandatory back-link. grounds = [generator] is non-empty by construction,
+    // so this never returns NoProvenance.
+    let assertion = crate::strata::seal_assertion(&proposition, &[&generator], agent)?;
+
     memo.insert(generator.cid.clone(), proposition.cid.clone());
-    Ok(Projection { generator, proposition, program_cid })
+    Ok(Projection { generator, proposition, assertion, program_cid })
 }
 
 #[cfg(test)]
@@ -412,7 +426,7 @@ mod tests {
             (Quantum::seal(&proposition_schema(), &json!({"subject":"b","num":11,"den":16,"value":Rat::new(11,16).unwrap().value()})).unwrap().cid, Rat::new(11,16).unwrap()),
         ];
         let prog = json!({"op":"mediant","args":[{"in":0},{"in":1}]});
-        let p = project(&mut memo, &prog, &inputs, "omega_lambda").unwrap();
+        let p = project(&mut memo, &prog, &inputs, "omega_lambda", "claude").unwrap();
 
         let direct = Quantum::seal(&proposition_schema(), &json!({
             "subject":"omega_lambda","num":13,"den":19,"value":Rat::new(13,19).unwrap().value()
@@ -425,9 +439,9 @@ mod tests {
         let mut memo = Memo::new();
         let inputs = [("cidA".to_string(), Rat::new(2,3).unwrap()), ("cidB".to_string(), Rat::new(11,16).unwrap())];
         let prog = json!({"op":"mediant","args":[{"in":0},{"in":1}]});
-        let p1 = project(&mut memo, &prog, &inputs, "x").unwrap();
+        let p1 = project(&mut memo, &prog, &inputs, "x", "claude").unwrap();
         assert_eq!(memo.get(&p1.generator.cid), Some(&p1.proposition.cid), "generator CID caches its output");
-        let p2 = project(&mut memo, &prog, &inputs, "x").unwrap();
+        let p2 = project(&mut memo, &prog, &inputs, "x", "claude").unwrap();
         assert_eq!(p1.generator.cid, p2.generator.cid, "intensional dedup: same program+inputs → one generator");
         assert_eq!(memo.len(), 1, "re-projection hits the memo, no new entry");
     }
@@ -437,12 +451,12 @@ mod tests {
         let mut memo = Memo::new();
         let prog = json!({"op":"mediant","args":[{"in":0},{"in":1}]});
         let same = [("a".to_string(), Rat::new(2,3).unwrap()), ("b".to_string(), Rat::new(11,16).unwrap())];
-        let g1 = project(&mut memo, &prog, &same, "x").unwrap().generator.cid;
-        let g2 = project(&mut memo, &prog, &same, "x").unwrap().generator.cid;
+        let g1 = project(&mut memo, &prog, &same, "x", "claude").unwrap().generator.cid;
+        let g2 = project(&mut memo, &prog, &same, "x", "claude").unwrap().generator.cid;
         assert_eq!(g1, g2);
         // different inputs → different generator (identity includes inputs)
         let other = [("c".to_string(), Rat::new(1,2).unwrap()), ("b".to_string(), Rat::new(11,16).unwrap())];
-        let g3 = project(&mut memo, &prog, &other, "x").unwrap().generator.cid;
+        let g3 = project(&mut memo, &prog, &other, "x", "claude").unwrap().generator.cid;
         assert_ne!(g1, g3);
     }
 
@@ -463,7 +477,7 @@ mod tests {
         let mut memo = Memo::new();
         let inputs = [("a".to_string(), Rat::new(2,3).unwrap()), ("b".to_string(), Rat::new(11,16).unwrap())];
         let prog = json!({"op":"mediant","args":[{"in":0},{"in":1}]});
-        let p = project(&mut memo, &prog, &inputs, "x").unwrap();
+        let p = project(&mut memo, &prog, &inputs, "x", "claude").unwrap();
 
         // assertion-shaped quantum carrying a `generator` back-link list
         let asrt_schema = Schema::new("derived", 1)
@@ -517,7 +531,7 @@ mod tests {
         // A recursive generator with NO inputs (the path is the program) projects
         // 13/19 — bit-identical to the directly sealed fact.
         let mut memo = Memo::new();
-        let p = project(&mut memo, &json!({"walk":"LRRLLLLL"}), &[], "omega_lambda").unwrap();
+        let p = project(&mut memo, &json!({"walk":"LRRLLLLL"}), &[], "omega_lambda", "claude").unwrap();
         let direct = Quantum::seal(&proposition_schema(), &json!({
             "subject":"omega_lambda","num":13,"den":19,"value":Rat::new(13,19).unwrap().value()
         })).unwrap();
@@ -553,12 +567,29 @@ mod tests {
     }
 
     #[test]
+    fn project_emits_mandatory_back_link() {
+        // Projection always returns the back-link assertion; its grounds name the
+        // generator. There is no API path to a projected fact without provenance.
+        let mut memo = Memo::new();
+        let p = project(&mut memo, &json!({"walk":"LRRLLLLL"}), &[], "omega_lambda", "claude").unwrap();
+        let grounds = p.assertion.field("grounds").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(grounds.len(), 1);
+        assert_eq!(grounds[0].as_str(), Some(p.generator.cid.as_str()), "the assertion grounds the proposition in its generator");
+        assert_eq!(p.assertion.field("proposition").and_then(|v| v.as_str()), Some(p.proposition.cid.as_str()));
+
+        // And the provenance resolves: the proposition is admissible into the bulk.
+        let mut known = std::collections::BTreeSet::new();
+        known.insert(p.generator.cid.clone());
+        assert!(crate::strata::admissible_propositions(&[p.assertion.clone()], &known).contains(&p.proposition.cid));
+    }
+
+    #[test]
     fn generator_is_a_well_formed_quantum() {
         // sanity: the generator quantum decodes its identity fields back
         let mut memo = Memo::new();
         let inputs = [("a".to_string(), Rat::new(2,3).unwrap())];
         let prog = json!({"in":0});
-        let p = project(&mut memo, &prog, &inputs, "x").unwrap();
+        let p = project(&mut memo, &prog, &inputs, "x", "claude").unwrap();
         let gs = generator_schema();
         let canon = Canon::new(&gs);
         assert!(canon.identity_projection(&p.generator.body).is_ok());

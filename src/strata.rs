@@ -25,11 +25,25 @@
 //! *is* its derivation (a proof, not its conclusion), grounds belong in identity
 //! and the proposition layer collapses onto the assertion. See `SPINE.md` §4.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+use serde_json::json;
 
 use crate::bridge::needs_review;
-use crate::quantum::Quantum;
+use crate::quantum::{Quantum, QuantumError};
 use crate::schema::{FieldKind, Schema};
+
+/// Errors from the constrained assertion constructor.
+#[derive(Debug, thiserror::Error)]
+pub enum StrataError {
+    /// An assertion was built with no grounds — a derived datum with no
+    /// provenance. The constructor refuses it, which is what makes silent drift
+    /// *unrepresentable* rather than merely auditable.
+    #[error("a derived assertion must carry at least one ground (its provenance)")]
+    NoProvenance,
+    #[error(transparent)]
+    Quantum(#[from] QuantumError),
+}
 
 /// The **proposition** schema: extensional content only.
 ///
@@ -109,6 +123,59 @@ pub fn locked_fraction(schema: &Schema, quanta: &[Quantum]) -> f64 {
     }
 }
 
+/// Seal an **assertion** linking a proposition to its provenance — the mandatory
+/// back-link of `SPINE.md` §5, enforced as a *constructor invariant*.
+///
+/// `grounds` are passed as **existing sealed quanta** (generators or
+/// attestations) and must be **non-empty**. Both facts make a derived datum
+/// without provenance unrepresentable: you cannot name a ground that does not
+/// exist (you must hold the `&Quantum`), and you cannot name *zero* grounds
+/// (`NoProvenance`). There is no path to an assertion that floats free of what
+/// produced it — silent drift is abolished here, not policed downstream.
+pub fn seal_assertion(
+    proposition: &Quantum,
+    grounds: &[&Quantum],
+    agent: &str,
+) -> Result<Quantum, StrataError> {
+    if grounds.is_empty() {
+        return Err(StrataError::NoProvenance);
+    }
+    let ground_cids: Vec<&String> = grounds.iter().map(|g| &g.cid).collect();
+    Ok(Quantum::seal(
+        &assertion_schema(),
+        &json!({ "proposition": proposition.cid, "grounds": ground_cids, "agent": agent }),
+    )?)
+}
+
+/// The propositions admissible into the bulk: those with at least one assertion
+/// whose grounds **all resolve** to a known boundary/derived CID. The positive
+/// form of provenance — `seal_assertion` guarantees the back-link is *present*;
+/// this checks it still *resolves* (no ground retracted since). A proposition
+/// with no resolving assertion is "about nothing" and is excluded from the
+/// closure. `known` is the boundary set (attestations, generators, vouched
+/// primary inputs); the closure bottoms out there.
+pub fn admissible_propositions(
+    assertions: &[Quantum],
+    known: &BTreeSet<String>,
+) -> BTreeSet<String> {
+    let mut ok = BTreeSet::new();
+    for a in assertions {
+        let Some(prop) = a.field("proposition").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let resolves = a
+            .field("grounds")
+            .and_then(|v| v.as_array())
+            .is_some_and(|gs| {
+                !gs.is_empty() && gs.iter().all(|g| g.as_str().is_some_and(|c| known.contains(c)))
+            });
+        if resolves {
+            ok.insert(prop.to_string());
+        }
+    }
+    ok
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,6 +225,38 @@ mod tests {
 
         let counts = corroboration(&[a, b, c]);
         assert_eq!(counts[&prop.cid], vec!["claude".to_string(), "gpt".to_string()]);
+    }
+
+    #[test]
+    fn seal_assertion_rejects_empty_provenance() {
+        let ps = proposition_schema();
+        let prop = Quantum::seal(&ps, &json!({"subject":"r","num":13,"den":19,"value":0.6842})).unwrap();
+        // No grounds → unrepresentable. This is the §5 back-link as a constructor
+        // invariant: you cannot assert a derived fact with no provenance.
+        assert!(matches!(seal_assertion(&prop, &[], "claude"), Err(StrataError::NoProvenance)));
+
+        // With a ground (here a stand-in generator quantum) it succeeds, and the
+        // ground's CID is recorded.
+        let gen = Quantum::seal(&ps, &json!({"subject":"g","num":1,"den":1,"value":1.0})).unwrap();
+        let a = seal_assertion(&prop, &[&gen], "claude").unwrap();
+        let grounds = a.field("grounds").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(grounds.len(), 1);
+        assert_eq!(grounds[0].as_str(), Some(gen.cid.as_str()));
+    }
+
+    #[test]
+    fn admissible_requires_resolving_grounds() {
+        let ps = proposition_schema();
+        let prop = Quantum::seal(&ps, &json!({"subject":"r","num":13,"den":19,"value":0.6842})).unwrap();
+        let gen = Quantum::seal(&ps, &json!({"subject":"g","num":1,"den":1,"value":1.0})).unwrap();
+        let a = seal_assertion(&prop, &[&gen], "claude").unwrap();
+
+        // ground not yet known → proposition is "about nothing", excluded.
+        let mut known = BTreeSet::new();
+        assert!(admissible_propositions(&[a.clone()], &known).is_empty());
+        // ground resolves → proposition admitted into the bulk.
+        known.insert(gen.cid.clone());
+        assert!(admissible_propositions(&[a], &known).contains(&prop.cid));
     }
 
     #[test]

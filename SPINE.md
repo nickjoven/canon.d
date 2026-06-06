@@ -511,11 +511,20 @@ they are not mistaken for the endpoint.
   left-fold over a finite list), plus `stern_brocot_to_depth` demonstrating one
   O(rule) generator grounding O(2^d) facts. **Finding:** forced-vs-fitted MDL
   discriminates at the *family* level (the amortized rule), **not** per node —
-  Stern-Brocot nodes are individually incompressible. *Not yet:* the mandatory
-  back-link as a **schema constraint** (provenance is an audit today, not an
-  unrepresentability); user-defined recursion (only the `walk`/`fold` primitives
-  recurse — a general structural-recursion *combinator* with a descent checker is
-  the 2c-shaped extension); and value-algebra beyond `Rat`.
+  Stern-Brocot nodes are individually incompressible.
+- **Back-link as a constraint.** ✅ **Built** (`src/strata.rs`, `generator.rs`):
+  `seal_assertion(proposition, grounds: &[&Quantum], agent)` takes grounds as
+  *existing sealed quanta* and rejects an empty set (`StrataError::NoProvenance`),
+  so a derived datum without provenance is **unrepresentable** — you cannot name a
+  ground that does not exist, nor zero grounds. `project` now returns the back-link
+  assertion as part of `Projection`, so there is no API path to a projected fact
+  without its provenance. `admissible_propositions` is the positive closure (a
+  proposition is in the bulk iff a justification's grounds all resolve). §5's
+  "abolish, don't police" is now kept by construction; `provenance_audit` remains
+  the drift check for grounds retracted *after* sealing. *Not yet:* user-defined
+  recursion (only the `walk`/`fold` primitives recurse — a general
+  structural-recursion *combinator* with a descent checker is the 2c extension);
+  and value-algebra beyond `Rat`.
 - **Entailment / closure.** A `closure()` over the witness decision procedures
   (§6): interval containment, BDD-implies, dimension-match. Datalog-style
   least-model evaluation; supersession as stratified negation.

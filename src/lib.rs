@@ -47,6 +47,7 @@ pub use generator::{
 };
 pub use schema::{Field, FieldKind, Schema};
 pub use strata::{
-    assertion_schema, corroboration, locked_fraction, proposition_schema,
+    admissible_propositions, assertion_schema, corroboration, locked_fraction, proposition_schema,
+    seal_assertion, StrataError,
 };
 pub use topology::{Cluster, NodeInfo, TopologyView};
