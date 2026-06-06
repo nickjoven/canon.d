@@ -32,6 +32,7 @@ pub mod mapping;
 pub mod quantum;
 mod schema;
 pub mod strata;
+pub mod subsume;
 mod topology;
 
 pub use alignment::{AlignConfig, AlignRationale, Candidate, align, candidates_to_mappings};
@@ -62,4 +63,5 @@ pub use strata::{
     admissible_propositions, assertion_schema, corroboration, locked_fraction, proposition_schema,
     seal_assertion, StrataError,
 };
+pub use subsume::{entailment_edges, maximal_antichain, redundant, Claim, RatInterval};
 pub use topology::{Cluster, NodeInfo, TopologyView};

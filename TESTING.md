@@ -143,6 +143,15 @@ Note: floored propagation is a *deliberate multi-resolution approximation* —
 effects in exchange for laziness. The floor / per-channel attenuation is the
 calibration knob (same unbuilt self-calibration loop as SPINE §8).
 
+## 5g. Subsumption — entailment as interval containment (`subsume.rs`)
+
+| Criterion | Test |
+|---|---|
+| `subsumes` is exact interval containment on `Rat`'s i128 order (a precise value ⊢ its coarsenings; loose does not subsume precise) | `subsume::subsumes_is_exact_interval_containment` |
+| Subsumption-dedup: coarsenings are redundant; the consensus keeps only the ⊢-strongest (maximal antichain) | `subsume::redundant_and_antichain_keep_only_the_strongest` |
+| Certainty flows **down** the order: certify the strongest, coarsenings follow for free | `subsume::certainty_flows_down_the_order` |
+| Dethroning: a stronger claim makes a weaker incumbent redundant (the dissipation that fixes attention favoritism) | `subsume::stronger_claim_dethrones_weaker_incumbent` |
+
 ## 6. Bridge (`bridge.rs`)
 
 | Criterion | Test |
@@ -199,7 +208,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 112/112 green, 0 warnings
+cargo test          # all criteria above; must be 117/117 green, 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```
