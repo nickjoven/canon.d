@@ -203,6 +203,24 @@ impl Rat {
     }
 }
 
+/// Exact total order — the comparison subsumption (interval containment) needs.
+/// `den > 0` is a `Rat` invariant, so `a/b ⋚ c/d ⟺ a·d ⋚ c·b`, and the cross
+/// products fit in `i128` for *any* `i64` rational (i64×i64 ≈ 8.5e37 < i128 max
+/// ≈ 1.7e38) — so it is exact with no overflow and no bignum. Do **not** compare
+/// via `value()`: f64 collides above 2^53 (the lossy-witness bug); do **not**
+/// derive `Ord`: lexicographic `(num,den)` is wrong (`3/4 < 5/7` is false).
+impl Ord for Rat {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.num as i128 * other.den as i128).cmp(&(other.num as i128 * self.den as i128))
+    }
+}
+
+impl PartialOrd for Rat {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// Evaluate a program term against its resolved inputs. Deterministic and
 /// confluent; total *into `Result`* — it always halts and never panics, returning
 /// `EvalError::Overflow` when a value leaves the i64 `Rat` algebra rather than
@@ -538,6 +556,20 @@ mod tests {
     }
 
     // --- Stage 2b: structural recursion ---
+
+    #[test]
+    fn rat_orders_exactly_where_float_and_derive_fail() {
+        // exact, and distinguishes rationals whose f64 values collide above 2^53
+        let a = Rat::new(9_007_199_254_740_993, 1).unwrap(); // 2^53 + 1
+        let b = Rat::new(9_007_199_254_740_992, 1).unwrap(); // 2^53
+        assert!(a > b, "i128 cross-multiply is exact");
+        assert_eq!(a.value(), b.value(), "their f64 values tie — why we never compare by value()");
+        // cases a derived (num,den) lexicographic Ord would get wrong
+        assert!(Rat::new(3, 4).unwrap() > Rat::new(5, 7).unwrap(), "0.75 > 0.714");
+        // and the Stern-Brocot mediant order holds: 2/3 < 13/19 < 11/16
+        assert!(Rat::new(2, 3).unwrap() < Rat::new(13, 19).unwrap());
+        assert!(Rat::new(13, 19).unwrap() < Rat::new(11, 16).unwrap());
+    }
 
     #[test]
     fn arithmetic_overflow_is_typed_not_panic() {
