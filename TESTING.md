@@ -130,7 +130,7 @@ oversights; a test that claimed them would be lying.
    seal time; `admissible_propositions` does that downstream.
 7. **`locked_fraction` is schema-homogeneous** (1.0 or 0.0 per call) — mixed-bag
    coverage is not yet computed.
-9. **Consistency is proven; accuracy is not.** `chain` verifies the chain is
+8. **Consistency is proven; accuracy is not.** `chain` verifies the chain is
    internally faithful and reproducible (consistency) and roots it in its anchors,
    but **no test claims a fact is true** — accuracy bottoms out at the anchors'
    vouches. Two crypto constructs that would make accuracy *auditable* (still not
@@ -138,7 +138,7 @@ oversights; a test that claimed them would be lying.
    wasn't rewritten" is verifiable — today the log is trusted) and **signed
    attestations** (so each anchor's vouch is non-repudiable — today `vouched_by` is
    a plain name).
-8. **Not built / not claimed:** the **subsumption order** (entailment via the
+9. **Not built / not claimed:** the **subsumption order** (entailment via the
    witness decision procedures — the *stronger* dedup that catches a re-derivation
    of an already-entailed claim; the grounded closure in §5b is built, this is
    not), supersession as stratified negation, the self-calibration loop,
