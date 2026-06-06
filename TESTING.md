@@ -134,6 +134,9 @@ mechanical gap — citation → certainty — once the content exists.
 | A smaller change reaches less far at the same floor (amplitude gates reach) | `propagation::amplitude_gates_reach` |
 | A peripheral (leaf) change is local for free; the keystone is gravitational | `propagation::peripheral_change_is_local_for_free` |
 | Levels assign the hierarchy by grounding depth (anchor = coarsest) | `propagation::levels_assign_the_hierarchy` |
+| **Calibrate by gap** (Step 3): floor lands in a real coarse/fine gap; a uniform graph honestly reports no separation | `propagation::calibrate_finds_a_clean_gap`, `propagation::uniform_spectrum_reports_no_separation` |
+| **Calibrate by budget** (Step 3): the floor admits exactly K nodes (WQS/ket-opt) | `propagation::floor_for_budget_admits_exactly_k` |
+| Calibration drives `settle_floored` end-to-end (spectrum → floor → bounded settle → exact recovery) | `closure::calibrated_budget_floor_bounds_the_settle`, `closure::calibrate_gap_separates_or_declines` |
 
 Note: floored propagation is a *deliberate multi-resolution approximation* —
 `floor → 0` recovers the exact eager closure; a higher floor drops sub-floor far
@@ -196,7 +199,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 106/106 green, 0 warnings
+cargo test          # all criteria above; must be 112/112 green, 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```

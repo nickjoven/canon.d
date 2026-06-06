@@ -102,9 +102,95 @@ pub fn levels(anchors: &[&str], edges: &[TypedEdge]) -> BTreeMap<String, usize> 
     level
 }
 
+/// A calibrated floor and how well it separates two populations.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Calibration {
+    /// The floor to use (Step 3 → Step 2's `settle_floored`).
+    pub floor: f64,
+    /// How much the chosen gap stands out vs the typical gap. `~1` = **no clean
+    /// separation** (a uniform/geometric graph — flooring is lossy here, reported
+    /// honestly); `≫1` = a clean coarse/fine split, so the floor sits in a real gap
+    /// and drops only noise. This is the Arnold-tongue separatrix made into a number.
+    pub separation: f64,
+}
+
+/// **Step 3 — calibrate the floor by the largest gap** in the amplitude spectrum:
+/// the separatrix between the coarse population that should propagate far and the
+/// fine noise that should dissipate. Returns `None` for fewer than two distinct
+/// levels. Read `separation`: near 1 means there is no distinguished floor (don't
+/// floor — it would cut signal); large means a genuine coarse/fine split.
+pub fn calibrate_floor(spectrum: &[f64]) -> Option<Calibration> {
+    let mut s: Vec<f64> = spectrum.iter().copied().filter(|x| *x > 0.0).collect();
+    s.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    s.dedup();
+    if s.len() < 2 {
+        return None;
+    }
+    let ratios: Vec<f64> = s.windows(2).map(|w| w[0] / w[1]).collect();
+    let (mut bi, mut bratio) = (0usize, 0.0f64);
+    for (i, &r) in ratios.iter().enumerate() {
+        if r > bratio {
+            bratio = r;
+            bi = i;
+        }
+    }
+    let floor = (s[bi] * s[bi + 1]).sqrt(); // geometric mean of the bracketing pair
+    let mut sorted = ratios.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median = sorted[sorted.len() / 2];
+    let separation = if median > 0.0 { bratio / median } else { bratio };
+    Some(Calibration { floor, separation })
+}
+
+/// The floor that admits exactly `budget` nodes — the cost-constrained
+/// (WQS / ket-opt) calibration. `budget ≥ |spectrum|` ⇒ `0.0` (exact);
+/// `budget == 0` ⇒ above the max (settle nothing). Robust: needs no gap.
+pub fn floor_for_budget(spectrum: &[f64], budget: usize) -> f64 {
+    let mut s: Vec<f64> = spectrum.iter().copied().filter(|x| *x > 0.0).collect();
+    s.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    if budget >= s.len() {
+        return 0.0;
+    }
+    if budget == 0 {
+        return s.first().map_or(1.0, |m| m * 2.0);
+    }
+    (s[budget - 1] * s[budget]).sqrt()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn calibrate_finds_a_clean_gap() {
+        // a coarse plateau (1.0, 0.9, 0.85) and a fine band (0.2, 0.15, 0.1) with a
+        // gap between — the floor lands in the gap, separation stands out.
+        let c = calibrate_floor(&[1.0, 0.9, 0.85, 0.2, 0.15, 0.1]).unwrap();
+        assert!(c.floor > 0.2 && c.floor < 0.85, "floor sits in the gap: {}", c.floor);
+        assert!(c.separation > 2.0, "the gap clearly stands out: {}", c.separation);
+    }
+
+    #[test]
+    fn uniform_spectrum_reports_no_separation() {
+        // pure geometric decay: every gap is the same ratio → no distinguished cut.
+        let c = calibrate_floor(&[1.0, 0.5, 0.25, 0.125, 0.0625]).unwrap();
+        assert!((c.separation - 1.0).abs() < 1e-9, "uniform ⇒ separation ≈ 1 (flooring is lossy)");
+    }
+
+    #[test]
+    fn calibrate_none_for_degenerate() {
+        assert!(calibrate_floor(&[]).is_none());
+        assert!(calibrate_floor(&[0.7]).is_none());
+    }
+
+    #[test]
+    fn floor_for_budget_admits_exactly_k() {
+        let spec = [1.0, 0.5, 0.25, 0.125];
+        let f = floor_for_budget(&spec, 2);
+        assert_eq!(spec.iter().filter(|&&a| a >= f).count(), 2, "exactly 2 above the floor");
+        assert_eq!(floor_for_budget(&spec, 9), 0.0, "budget covers all ⇒ exact (floor 0)");
+        assert!(floor_for_budget(&spec, 0) > 1.0, "budget 0 ⇒ floor above the max");
+    }
 
     // a keystone `a`, then a line of consequences grounded outward: b←a, c←b, …
     fn line() -> Vec<TypedEdge> {

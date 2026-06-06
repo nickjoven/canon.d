@@ -45,7 +45,7 @@ pub use closure::Closure;
 pub use crypto::{signing_key, verify_vouch, vouch, Vouch};
 pub use lineage::{lineage_closure, lineage_to_annotations, parse_lineage, TypedEdge};
 pub use log::{LogEntry, TransparencyLog};
-pub use propagation::{levels, propagate, reach};
+pub use propagation::{calibrate_floor, floor_for_budget, levels, propagate, reach, Calibration};
 pub use cross_topology::{CrossTopologyView, DomainBridge, Disagreement, TransitivePath};
 pub use domain::Domain;
 pub use mapping::{Direction, Mapping, MappingBuilder, mapping_schema};

@@ -324,6 +324,33 @@ impl Closure {
         }
     }
 
+    /// The **amplitude spectrum** a change of `amplitude` from `seeds` would
+    /// induce over the dependent graph, attenuating per hop — the data the floor
+    /// calibrator reads (Step 3). Sorted descending. Computed with no floor (the
+    /// full reach), so calibration sees the whole distribution it is about to cut.
+    pub fn amplitude_spectrum(&self, seeds: &[&str], amplitude: f64, attenuation: f64) -> Vec<f64> {
+        let mut best: BTreeMap<String, f64> = BTreeMap::new();
+        let mut frontier: Vec<(String, f64)> = seeds.iter().map(|s| (s.to_string(), amplitude)).collect();
+        while let Some((node, amp)) = frontier.pop() {
+            if amp <= 0.0 {
+                continue;
+            }
+            if best.get(&node).is_some_and(|&p| p >= amp) {
+                continue;
+            }
+            best.insert(node.clone(), amp);
+            let next = amp * attenuation;
+            if let Some(ds) = self.dependents.get(&node) {
+                for d in ds {
+                    frontier.push((d.clone(), next));
+                }
+            }
+        }
+        let mut v: Vec<f64> = best.into_values().collect();
+        v.sort_by(|a, b| b.partial_cmp(a).unwrap());
+        v
+    }
+
     /// Is this CID in the certain core?
     pub fn is_certain(&self, cid: &str) -> bool {
         self.admitted.contains(cid)
@@ -531,6 +558,37 @@ mod tests {
         fine.stage_anchor("a");
         fine.settle_floored(1.0, 0.3, 0.3);
         assert!(fine.certain().len() < 4 && fine.pending() > 0, "fine signal dissipates locally");
+    }
+
+    // --- Step 3: calibrate the floor (the self-calibration loop) ---
+
+    #[test]
+    fn calibrated_budget_floor_bounds_the_settle() {
+        use crate::propagation::floor_for_budget;
+        let mut c = primed_chain(); // a→P→Q→R, rules primed (dependents populated)
+        // read the spectrum a change at `a` would induce, then pick the floor that
+        // settles a 2-node budget — calibration drives the floor, not a guess.
+        let spectrum = c.amplitude_spectrum(&["a"], 1.0, 0.5);
+        assert_eq!(spectrum.len(), 4, "a, P, Q, R all reachable");
+        let floor = floor_for_budget(&spectrum, 2);
+
+        c.stage_anchor("a");
+        c.settle_floored(1.0, 0.5, floor);
+        assert_eq!(*c.certain(), set(&["a", "P"]), "the budget floor settles exactly the coarse 2");
+        assert!(c.pending() > 0, "the rest is deferred, explicitly");
+        c.settle();
+        assert_eq!(*c.certain(), set(&["a", "P", "Q", "R"]), "and recovers exactly");
+    }
+
+    #[test]
+    fn calibrate_gap_separates_or_declines() {
+        use crate::propagation::calibrate_floor;
+        // a chain's spectrum is geometric (uniform) → calibration declines to floor
+        // (separation ≈ 1), honestly: there is no clean coarse/fine split to cut.
+        let c = primed_chain();
+        let spectrum = c.amplitude_spectrum(&["a"], 1.0, 0.5);
+        let cal = calibrate_floor(&spectrum).unwrap();
+        assert!((cal.separation - 1.0).abs() < 1e-9, "uniform graph ⇒ no distinguished floor");
     }
 
     #[test]
