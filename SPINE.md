@@ -491,15 +491,20 @@ they are not mistaken for the endpoint.
 - **Positive-width contraction.** `canon.rs` implements the width-zero
   (byte-exact) limit. The basin metric, the tongue, and the basin-crossing
   detector (§3) are unbuilt. *Decision under the computing: the metric's form.*
-- **Quantum stratification.** Split the one-level claim into
-  proposition / assertion / justification (§4); move `grounds` out of
-  proposition-identity into justification-identity; teach `cross_audit` to run at
-  the proposition level only. **This is the first thing to build — it removes a
-  live false-positive `UnderMerge`.**
-- **Generator quanta.** A `generator_schema` whose identity is
-  `(program_CID, input_CIDs)`, a mandatory output→generator back-link field, and
-  memoized normalization (§5). Without the back-link, the silent-drift class is
-  *policed*; with it, it is *abolished*.
+- **Quantum stratification.** ✅ **Built** (`src/strata.rs`): `proposition_schema`
+  (no grounds in identity — dedup + cross-audit here), `assertion_schema`
+  (`proposition` + `grounds` + `agent`), `corroboration`, `locked_fraction`. The
+  false-positive `UnderMerge` is pinned (`quantum.rs`) and fixed.
+- **Generator quanta.** ✅ **Stage 1 + 2a built** (`src/generator.rs`):
+  `generator_schema` (identity `(program, inputs)`), `seal_program`,
+  `provenance_audit` (the silent-drift detector for the generator half of
+  `grounds`), the `Rat` value algebra + compose-only total `eval`, `project`
+  (memoized normalization → a proposition), and `mdl`. *Not yet:* **Stage 2b —
+  structural recursion** (the `fold`/walk primitive with a structural-descent
+  guard) that reaches the Stern-Brocot / devil's-staircase generators and gives
+  MDL its forced-vs-fitted discriminating teeth (fractal compression); and the
+  mandatory back-link as a *schema constraint* (today provenance is an audit, not
+  an unrepresentability).
 - **Entailment / closure.** A `closure()` over the witness decision procedures
   (§6): interval containment, BDD-implies, dimension-match. Datalog-style
   least-model evaluation; supersession as stratified negation.

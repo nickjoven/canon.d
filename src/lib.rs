@@ -21,6 +21,7 @@ pub mod bridge;
 mod canon;
 pub mod cross_topology;
 pub mod domain;
+pub mod generator;
 pub mod mapping;
 pub mod quantum;
 mod schema;
@@ -39,6 +40,10 @@ pub use mapping::{Direction, Mapping, MappingBuilder, mapping_schema};
 pub use quantum::{
     CrossAuditConflict, EDGE_KINDS, Quantum, QuantumError, address, cross_audit,
     edge_annotation_schema, schema_cid, validate_edge_kind,
+};
+pub use generator::{
+    eval, generator_schema, mdl, project, provenance_audit, seal_program, EvalError, Memo, Orphan,
+    Projection, Rat,
 };
 pub use schema::{Field, FieldKind, Schema};
 pub use strata::{

@@ -27,8 +27,6 @@
 
 use std::collections::BTreeMap;
 
-use serde_json::Value;
-
 use crate::bridge::needs_review;
 use crate::quantum::Quantum;
 use crate::schema::{FieldKind, Schema};
