@@ -525,9 +525,16 @@ they are not mistaken for the endpoint.
   recursion (only the `walk`/`fold` primitives recurse — a general
   structural-recursion *combinator* with a descent checker is the 2c extension);
   and value-algebra beyond `Rat`.
-- **Entailment / closure.** A `closure()` over the witness decision procedures
-  (§6): interval containment, BDD-implies, dimension-match. Datalog-style
-  least-model evaluation; supersession as stratified negation.
+- **Entailment / closure.** ✅ **Grounded closure built** (`src/closure.rs`): the
+  incremental Datalog least model over the grounding relation — the certain core /
+  reviewed consensus. `add_anchor`/`add_justification` are the monotone, semi-naive
+  **warm-start delta-fold**; `retract` is the non-monotone blast-radius re-derive
+  (the maintenance cost of certainty); `mark_contested` keeps the cautious core
+  honest; `support` is corroboration strength. Order-independent (batch ==
+  incremental). *Not yet:* the **subsumption order** via the witness decision
+  procedures (interval-containment / BDD-implies / dimension-match) — the *stronger*
+  dedup that catches re-derivation of an already-entailed claim — and supersession
+  as stratified negation.
 - **Self-calibration loop.** Wire `cross_audit` as the objective; search tongue
   widths to the fixed point (§8). The WQS/ket-opt analogue, native to canon.d.
 - **W(Ω) metric.** Replace flat "% sealed" with locked-fraction coverage (§9):

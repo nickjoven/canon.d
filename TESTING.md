@@ -74,6 +74,17 @@ broken regardless of any other green test.
 | `walk`/`fold` are total structural recursion | `walk_reproduces_stern_brocot_nodes`, `fold_is_total_structural_recursion` |
 | One O(rule) generator grounds O(2^d) distinct facts | `fractal_generator_is_holographic` |
 
+## 5b. Grounded closure — the certain core (`closure.rs`)
+
+| Criterion | Test |
+|---|---|
+| A proposition is certain iff a justification's grounds are all certain (transitive) | `closure::admits_transitively` |
+| An unresolved ground → never certain (needs a vouch / anchor) | `closure::ungrounded_never_certain` |
+| Incremental == batch (warm-start order-independence) | `closure::incremental_equals_batch` |
+| Retract is non-monotone — the blast radius loses certainty | `closure::retract_shrinks_non_monotone` |
+| Corroboration is robustness — alternative grounding survives a retract | `closure::retract_keeps_alternative_grounding` |
+| A contested fact is excluded and cannot certify others (cautious core) | `closure::contested_is_excluded_and_propagates` |
+
 ## 6. Bridge (`bridge.rs`)
 
 | Criterion | Test |
@@ -117,7 +128,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 73/73 green, 0 warnings
+cargo test          # all criteria above; must be 79/79 green, 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```
