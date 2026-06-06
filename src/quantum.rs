@@ -297,6 +297,29 @@ mod tests {
     }
 
     #[test]
+    fn grounds_in_identity_false_positives_on_corroboration() {
+        // THE DEFECT (fixed in `strata`): because `grounds` binds identity here,
+        // two INDEPENDENT, CORRECT derivations of one fact (same value, different
+        // grounds) seal to different CIDs but share a witness — so cross_audit
+        // mistakes corroboration for a canonicalizer UnderMerge. This test pins
+        // the false positive so the proposition/assertion split has a target.
+        let s = claim_schema();
+        let via_planck = Quantum::seal(&s, &json!({
+            "subject":"omega_lambda","num":13,"den":19,"grounds":["planck"],"value":0.6842
+        })).unwrap();
+        let via_wmap = Quantum::seal(&s, &json!({
+            "subject":"omega_lambda","num":13,"den":19,"grounds":["wmap"],"value":0.6842
+        })).unwrap();
+        assert_ne!(via_planck.cid, via_wmap.cid, "grounds-in-identity forks the two tellings");
+
+        let conflicts = cross_audit(&s, &[via_planck, via_wmap]).unwrap();
+        assert!(
+            conflicts.iter().any(|c| matches!(c, CrossAuditConflict::UnderMerge { .. })),
+            "DEFECT: corroboration is misreported as UnderMerge — strata::proposition_schema fixes this"
+        );
+    }
+
+    #[test]
     fn cross_audit_clean_when_forms_agree() {
         let s = claim_schema();
         let a = Quantum::seal(&s, &json!({

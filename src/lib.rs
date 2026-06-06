@@ -24,6 +24,7 @@ pub mod domain;
 pub mod mapping;
 pub mod quantum;
 mod schema;
+pub mod strata;
 mod topology;
 
 pub use alignment::{AlignConfig, AlignRationale, Candidate, align, candidates_to_mappings};
@@ -40,4 +41,7 @@ pub use quantum::{
     edge_annotation_schema, schema_cid, validate_edge_kind,
 };
 pub use schema::{Field, FieldKind, Schema};
+pub use strata::{
+    assertion_schema, corroboration, locked_fraction, proposition_schema,
+};
 pub use topology::{Cluster, NodeInfo, TopologyView};
