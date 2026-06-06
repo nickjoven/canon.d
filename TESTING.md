@@ -70,7 +70,8 @@ broken regardless of any other green test.
 | Program CID is stable | `program_cid_is_stable` |
 | `eval` is total *into `Result`* — overflow is `Overflow`, never panic/wrap | `arithmetic_overflow_is_typed_not_panic`, `eval_errors_are_typed` |
 | Projection reproduces the fact bit-identically | `projection_generates_the_fact`, `walk_projects_the_fact` |
-| Generator dedup is intensional (program + inputs) | `generator_dedup_is_intensional`, `projection_is_memoized` |
+| Generator dedup is intensional **and ordered** (program + ordered inputs); reorder → different generator | `generator_dedup_is_intensional_and_ordered`, `projection_is_memoized` |
+| **Forward-projection value is bound to identity** — read from the cited input quantum, not caller-supplied; non-value-bearing input rejected | `generator::input_value_is_read_from_the_cited_fact_not_the_caller` |
 | `walk`/`fold` are total structural recursion | `walk_reproduces_stern_brocot_nodes`, `fold_is_total_structural_recursion` |
 | One O(rule) generator grounds O(2^d) distinct facts | `fractal_generator_is_holographic` |
 
@@ -233,7 +234,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 144/144 green (120 unit + 24 e2e), 0 warnings
+cargo test          # all criteria above; must be 145/145 green (121 unit + 24 e2e), 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```

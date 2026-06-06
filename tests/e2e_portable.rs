@@ -14,7 +14,7 @@ mod common;
 use common::{omega_corpus, trusted_log, Corpus};
 
 use canon_d::{
-    export, import, verify_regeneration, Bundle, BundleEntry, Memo, Rat, Rule, SchemaKind,
+    export, import, verify_regeneration, Bundle, BundleEntry, Memo, Rule, SchemaKind,
 };
 use serde_json::json;
 
@@ -65,14 +65,19 @@ fn forward_projection_is_certain_and_exact() {
     let mut loaded = import(&omega_bundle(&c)).unwrap();
     assert!(loaded.closure.is_certain(&c.proposition.cid), "imported Ω_Λ is certain");
 
-    // FORWARD PROJECTION: a new generator computing Ω_matter = 1 − Ω_Λ, taking the
-    // imported Ω_Λ as its input (so the new fact grounds in the imported one).
+    // FORWARD PROJECTION: a new generator computing Ω_matter = 1 − Ω_Λ. Its input
+    // is the IMPORTED Ω_Λ quantum — its value (13/19) is read from that fact, not
+    // supplied by us, so the computation is bound to the input it cites. (Clone to
+    // release the borrow on `loaded` before we mutate its closure below.)
+    let imported = loaded
+        .certain_fact(&c.proposition.cid)
+        .expect("Ω_Λ is a certified, value-bearing fact")
+        .clone();
     let fwd_program = json!({
         "op":"add",
         "args":[{"lit":[1,1]}, {"op":"mul","args":[{"lit":[-1,1]}, {"in":0}]}]
     });
-    let omega_lambda = Rat::new(13, 19).unwrap();
-    let inputs = [(c.proposition.cid.clone(), omega_lambda)];
+    let inputs = [&imported];
     let mut memo = Memo::new();
     let fwd = canon_d::project(&mut memo, &fwd_program, &inputs, "omega_matter", "downstream").unwrap();
 

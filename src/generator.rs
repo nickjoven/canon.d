@@ -53,13 +53,15 @@ fn blake3_hex(bytes: &[u8]) -> String {
 /// The **generator** schema: identity is `(program, inputs)`.
 ///
 /// `program` is the CID of a sealed program term (see [`seal_program`]); `inputs`
-/// is the set of CIDs the term is applied to. `label` is detachable projection.
-/// Two generators with the same program and inputs share one CID (intensional
-/// dedup).
+/// is the **ordered** list of input CIDs the term is applied to — ordered because
+/// the program references them *positionally* (`{"in": k}`), so the generator's
+/// identity must bind the input order, or the same CID could evaluate two ways.
+/// `label` is detachable projection. Two generators with the same program and the
+/// same ordered inputs share one CID (intensional dedup).
 pub fn generator_schema() -> Schema {
     Schema::new("generator", 1)
         .identity("program", FieldKind::Cid)
-        .identity("inputs", FieldKind::Set(Box::new(FieldKind::Cid)))
+        .identity("inputs", FieldKind::List(Box::new(FieldKind::Cid)))
         .optional("label", FieldKind::String)
 }
 
@@ -133,6 +135,8 @@ pub enum EvalError {
     Malformed(String),
     #[error("integer overflow (the `Rat` value algebra is i64-bounded)")]
     Overflow,
+    #[error("input {0} is not a value-bearing proposition (no num/den)")]
+    NotValueBearing(String),
     #[error(transparent)]
     Quantum(#[from] QuantumError),
     #[error(transparent)]
@@ -404,27 +408,41 @@ pub struct Projection {
 /// derivation cache, native.
 pub type Memo = HashMap<String, String>;
 
+/// The rational an input proposition carries — read from its **own identity**
+/// (`num`/`den`), not supplied by the caller. This is the precision/correctness
+/// gate for forward projection: the value a generator computes with is *bound to
+/// the input it cites*, so a forward projection cannot be exact, certain, and yet
+/// numerically wrong by feeding a value that disagrees with the fact it grounds in.
+pub fn input_value(q: &Quantum) -> Result<Rat, EvalError> {
+    match (q.field("num").and_then(|v| v.as_i64()), q.field("den").and_then(|v| v.as_i64())) {
+        (Some(n), Some(d)) => Rat::new(n, d),
+        _ => Err(EvalError::NotValueBearing(q.cid.clone())),
+    }
+}
+
 /// Project a generator: seal the program, seal the generator quantum, evaluate the
-/// term against `inputs` (each a `(cid, value)` — the CID enters the generator's
-/// identity, the value drives evaluation), seal the resulting `proposition`, and
-/// seal the **mandatory back-link assertion** (`proposition ← generator`, by
-/// `agent`). Memoized on the generator CID. There is no way to obtain a projected
-/// proposition without its provenance — the back-link is part of the result.
+/// term against `inputs` (the **cited input quanta** — their CIDs enter the
+/// generator's identity *and* their values, read from those same quanta, drive
+/// evaluation, so value is bound to identity), seal the resulting `proposition`,
+/// and seal the **mandatory back-link assertion** (`proposition ← generator`, by
+/// `agent`). Memoized on the generator CID. The back-link is part of the result —
+/// there is no field-free path to a `Projection`.
 pub fn project(
     memo: &mut Memo,
     program_term: &Value,
-    inputs: &[(String, Rat)],
+    inputs: &[&Quantum],
     subject: &str,
     agent: &str,
 ) -> Result<Projection, EvalError> {
     let (program_cid, _) = seal_program(program_term);
-    let input_cids: Vec<&String> = inputs.iter().map(|(c, _)| c).collect();
+    let input_cids: Vec<&String> = inputs.iter().map(|q| &q.cid).collect();
     let generator = Quantum::seal(
         &generator_schema(),
         &json!({ "program": program_cid, "inputs": input_cids }),
     )?;
 
-    let vals: Vec<Rat> = inputs.iter().map(|(_, v)| *v).collect();
+    // values come from the cited quanta — not the caller (the gate)
+    let vals: Vec<Rat> = inputs.iter().map(|q| input_value(q)).collect::<Result<_, _>>()?;
     let out = eval(program_term, &vals)?;
     let proposition = Quantum::seal(
         &proposition_schema(),
@@ -479,12 +497,10 @@ mod tests {
         // Projecting the mediant generator yields exactly the proposition you'd
         // get by sealing 13/19 directly: the generated fact == the asserted fact.
         let mut memo = Memo::new();
-        let inputs = [
-            (Quantum::seal(&proposition_schema(), &json!({"subject":"a","num":2,"den":3,"value":Rat::new(2,3).unwrap().reduced_string()})).unwrap().cid, Rat::new(2,3).unwrap()),
-            (Quantum::seal(&proposition_schema(), &json!({"subject":"b","num":11,"den":16,"value":Rat::new(11,16).unwrap().reduced_string()})).unwrap().cid, Rat::new(11,16).unwrap()),
-        ];
+        let pa = Quantum::seal(&proposition_schema(), &json!({"subject":"a","num":2,"den":3,"value":"2/3"})).unwrap();
+        let pb = Quantum::seal(&proposition_schema(), &json!({"subject":"b","num":11,"den":16,"value":"11/16"})).unwrap();
         let prog = json!({"op":"mediant","args":[{"in":0},{"in":1}]});
-        let p = project(&mut memo, &prog, &inputs, "omega_lambda", "claude").unwrap();
+        let p = project(&mut memo, &prog, &[&pa, &pb], "omega_lambda", "claude").unwrap();
 
         let direct = Quantum::seal(&proposition_schema(), &json!({
             "subject":"omega_lambda","num":13,"den":19,"value":Rat::new(13,19).unwrap().reduced_string()
@@ -492,30 +508,67 @@ mod tests {
         assert_eq!(p.proposition.cid, direct.cid, "projection reproduces the fact bit-identically");
     }
 
+    // input propositions for the dedup tests
+    fn prop(subject: &str, n: i64, d: i64) -> Quantum {
+        Quantum::seal(
+            &proposition_schema(),
+            &json!({"subject":subject,"num":n,"den":d,"value":Rat::new(n,d).unwrap().reduced_string()}),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn projection_is_memoized() {
         let mut memo = Memo::new();
-        let inputs = [("cidA".to_string(), Rat::new(2,3).unwrap()), ("cidB".to_string(), Rat::new(11,16).unwrap())];
+        let (pa, pb) = (prop("a", 2, 3), prop("b", 11, 16));
         let prog = json!({"op":"mediant","args":[{"in":0},{"in":1}]});
-        let p1 = project(&mut memo, &prog, &inputs, "x", "claude").unwrap();
+        let p1 = project(&mut memo, &prog, &[&pa, &pb], "x", "claude").unwrap();
         assert_eq!(memo.get(&p1.generator.cid), Some(&p1.proposition.cid), "generator CID caches its output");
-        let p2 = project(&mut memo, &prog, &inputs, "x", "claude").unwrap();
+        let p2 = project(&mut memo, &prog, &[&pa, &pb], "x", "claude").unwrap();
         assert_eq!(p1.generator.cid, p2.generator.cid, "intensional dedup: same program+inputs → one generator");
         assert_eq!(memo.len(), 1, "re-projection hits the memo, no new entry");
     }
 
     #[test]
-    fn generator_dedup_is_intensional() {
+    fn generator_dedup_is_intensional_and_ordered() {
         let mut memo = Memo::new();
         let prog = json!({"op":"mediant","args":[{"in":0},{"in":1}]});
-        let same = [("a".to_string(), Rat::new(2,3).unwrap()), ("b".to_string(), Rat::new(11,16).unwrap())];
-        let g1 = project(&mut memo, &prog, &same, "x", "claude").unwrap().generator.cid;
-        let g2 = project(&mut memo, &prog, &same, "x", "claude").unwrap().generator.cid;
-        assert_eq!(g1, g2);
-        // different inputs → different generator (identity includes inputs)
-        let other = [("c".to_string(), Rat::new(1,2).unwrap()), ("b".to_string(), Rat::new(11,16).unwrap())];
-        let g3 = project(&mut memo, &prog, &other, "x", "claude").unwrap().generator.cid;
+        let (pa, pb, pc) = (prop("a", 2, 3), prop("b", 11, 16), prop("c", 1, 2));
+        let g1 = project(&mut memo, &prog, &[&pa, &pb], "x", "claude").unwrap().generator.cid;
+        let g2 = project(&mut memo, &prog, &[&pa, &pb], "x", "claude").unwrap().generator.cid;
+        assert_eq!(g1, g2, "same program + same ordered inputs → one generator");
+        // different inputs → different generator
+        let g3 = project(&mut memo, &prog, &[&pc, &pb], "x", "claude").unwrap().generator.cid;
         assert_ne!(g1, g3);
+        // ORDER matters: inputs are positional ({in:0},{in:1}), so reordering is a
+        // different generator (the List fix — identity binds the input order).
+        let g4 = project(&mut memo, &prog, &[&pb, &pa], "x", "claude").unwrap().generator.cid;
+        assert_ne!(g1, g4, "reordered inputs are a different generator");
+    }
+
+    #[test]
+    fn input_value_is_read_from_the_cited_fact_not_the_caller() {
+        // the value a generator computes with is bound to the input it cites:
+        // there is no caller-supplied value, so a forward projection cannot be
+        // exact + certain yet numerically wrong.
+        let omega = prop("omega_lambda", 13, 19);
+        assert_eq!(input_value(&omega).unwrap(), Rat::new(13, 19).unwrap());
+
+        // 1 − Ω_Λ, using the value READ FROM the input → 6/19
+        let prog = json!({"op":"add","args":[{"lit":[1,1]},{"op":"mul","args":[{"lit":[-1,1]},{"in":0}]}]});
+        let mut memo = Memo::new();
+        let p = project(&mut memo, &prog, &[&omega], "omega_matter", "x").unwrap();
+        assert_eq!(p.proposition.field("num").and_then(|v| v.as_i64()), Some(6));
+        assert_eq!(p.proposition.field("den").and_then(|v| v.as_i64()), Some(19));
+
+        // a non-value-bearing input (an attestation has no num/den) is rejected
+        let att = Quantum::seal(
+            &crate::attestation_schema(),
+            &json!({"instrument":"i","dataset":"d","locator":"l","value":1.0,"vouched_by":"n"}),
+        )
+        .unwrap();
+        assert!(matches!(input_value(&att), Err(EvalError::NotValueBearing(_))));
+        assert!(matches!(project(&mut memo, &json!({"in":0}), &[&att], "s", "x"), Err(EvalError::NotValueBearing(_))));
     }
 
     #[test]
@@ -533,9 +586,9 @@ mod tests {
     fn provenance_audit_flags_then_clears() {
         // An assertion grounded in a generator that isn't sealed = silent-drift.
         let mut memo = Memo::new();
-        let inputs = [("a".to_string(), Rat::new(2,3).unwrap()), ("b".to_string(), Rat::new(11,16).unwrap())];
+        let (pa, pb) = (prop("a", 2, 3), prop("b", 11, 16));
         let prog = json!({"op":"mediant","args":[{"in":0},{"in":1}]});
-        let p = project(&mut memo, &prog, &inputs, "x", "claude").unwrap();
+        let p = project(&mut memo, &prog, &[&pa, &pb], "x", "claude").unwrap();
 
         // assertion-shaped quantum carrying a `generator` back-link list
         let asrt_schema = Schema::new("derived", 1)
@@ -674,9 +727,9 @@ mod tests {
     fn generator_is_a_well_formed_quantum() {
         // sanity: the generator quantum decodes its identity fields back
         let mut memo = Memo::new();
-        let inputs = [("a".to_string(), Rat::new(2,3).unwrap())];
+        let pa = prop("a", 2, 3);
         let prog = json!({"in":0});
-        let p = project(&mut memo, &prog, &inputs, "x", "claude").unwrap();
+        let p = project(&mut memo, &prog, &[&pa], "x", "claude").unwrap();
         let gs = generator_schema();
         let canon = Canon::new(&gs);
         assert!(canon.identity_projection(&p.generator.body).is_ok());

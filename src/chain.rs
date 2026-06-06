@@ -29,7 +29,8 @@ use serde_json::Value;
 
 use crate::closure::Closure;
 use crate::crypto::{verify_vouch, Vouch};
-use crate::generator::{project, EvalError, Memo, Rat};
+use crate::generator::{project, EvalError, Memo};
+use crate::quantum::Quantum;
 use crate::log::TransparencyLog;
 
 /// A single hash committing to the **entire certain core** — a Merkle-style root
@@ -56,7 +57,7 @@ pub fn consensus_root(closure: &Closure) -> String {
 /// faithful output of its claimed generator.
 pub fn verify_regeneration(
     program_term: &Value,
-    inputs: &[(String, Rat)],
+    inputs: &[&Quantum],
     subject: &str,
     agent: &str,
     expected_proposition_cid: &str,
