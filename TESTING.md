@@ -120,6 +120,21 @@ broken regardless of any other green test.
 author the grounds/derives relations (domain judgment). The importer closes the
 mechanical gap — citation → certainty — once the content exists.
 
+## 5f. Floored propagation — be lazy about the far-reaching (`propagation.rs`)
+
+| Criterion | Test |
+|---|---|
+| Low-channel (low attenuation) reaches far; high-channel dissipates locally | `propagation::low_channel_reaches_far_high_channel_stays_local` |
+| The floor bounds cost — floored reach < full transitive reach (laziness) | `propagation::floor_bounds_cost_laziness` |
+| A smaller change reaches less far at the same floor (amplitude gates reach) | `propagation::amplitude_gates_reach` |
+| A peripheral (leaf) change is local for free; the keystone is gravitational | `propagation::peripheral_change_is_local_for_free` |
+| Levels assign the hierarchy by grounding depth (anchor = coarsest) | `propagation::levels_assign_the_hierarchy` |
+
+Note: floored propagation is a *deliberate multi-resolution approximation* —
+`floor → 0` recovers the exact eager closure; a higher floor drops sub-floor far
+effects in exchange for laziness. The floor / per-channel attenuation is the
+calibration knob (same unbuilt self-calibration loop as SPINE §8).
+
 ## 6. Bridge (`bridge.rs`)
 
 | Criterion | Test |
@@ -176,7 +191,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 94/94 green, 0 warnings
+cargo test          # all criteria above; must be 99/99 green, 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```
