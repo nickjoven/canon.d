@@ -26,3 +26,13 @@ only).
 
 E2E-5 (done — smallest, headline contract, forces the fixture into existence) →
 E2E-1 (comprehensive journey) → E2E-2 (adversary) → E2E-3/4 (refinements).
+
+## E2E-6 — Portability + correct forward projection ✅ (`e2e_portable.rs`)
+
+Added with the bundle layer (`src/bundle.rs`): the (A)+(B) vertical slice — export
+a harmonics chain to a portable bundle, round-trip through JSON, import into a
+fresh substrate (re-verify quanta, replay log, rebuild closure, check consensus
+root), then author a forward projection (Ω_matter = 1 − Ω_Λ = 6/19) grounded in
+the *imported* fact and assert it is **certain** (grounded back to the imported
+Planck anchor) and **exact** (an exact rational, not a float). Corrupt bundles
+(bad root, tampered body) are rejected.

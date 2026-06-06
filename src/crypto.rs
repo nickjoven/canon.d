@@ -21,7 +21,7 @@ pub fn signing_key(seed: &[u8; 32]) -> SigningKey {
 }
 
 /// A non-repudiable vouch: `signer` attests to `attestation_cid`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Vouch {
     /// The attestation CID being vouched for (its content address).
     pub attestation_cid: String,

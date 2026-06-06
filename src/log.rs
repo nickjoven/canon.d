@@ -86,6 +86,13 @@ impl TransparencyLog {
         self.entries.iter().any(|e| e.payload == payload)
     }
 
+    /// The payloads in append order — enough to *replay* the log (the append-only
+    /// event sequence regenerates the hash chain). Used to pack a log into a
+    /// portable bundle and rebuild it on import.
+    pub fn payloads(&self) -> Vec<String> {
+        self.entries.iter().map(|e| e.payload.clone()).collect()
+    }
+
     /// Replay the chain from genesis and confirm every link: sequence, prev-link,
     /// and recomputed hash, ending at the published head. `false` ⇒ the log was
     /// rewritten (an entry edited, reordered, inserted, or dropped).

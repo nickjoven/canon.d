@@ -18,6 +18,7 @@
 
 pub mod alignment;
 pub mod bridge;
+pub mod bundle;
 mod canon;
 pub mod chain;
 pub mod closure;
@@ -41,6 +42,7 @@ pub use bridge::{
     structuring_schema, utterance_schema,
 };
 pub use canon::{Canon, CanonError};
+pub use bundle::{export, import, Bundle, BundleEntry, BundleError, Loaded, Rule, SchemaKind};
 pub use chain::{audit_anchor, consensus_root, verify_regeneration, AnchorAudit};
 pub use closure::Closure;
 pub use crypto::{signing_key, verify_vouch, vouch, Vouch};

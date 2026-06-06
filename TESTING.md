@@ -167,6 +167,15 @@ system-level invariants no unit test reaches. Plan + status: `tests/PLAN.md`.
 | **Adversary** (E2E-2): each corruption caught by its defense, composed — tamper/substitute/buggy-gen/forged-vouch/under-merge; corroboration stays clean | `e2e_adversary.rs` (6 tests) |
 | **Lifecycle** (E2E-3): dethroning, certainty-flows-down, non-monotone retract, contested-excluded | `e2e_lifecycle.rs` (4 tests) |
 | **Scale & laziness** (E2E-4): batch==eager, floored sound-under-approx, calibration drives the floor; final root invariant | `e2e_scale.rs` (3 tests) |
+| **Portability + forward projection** (E2E-6): export → JSON round-trip → import (verify) → forward-project a new fact grounded in the imported one → certain + exact; corrupt bundle rejected | `e2e_portable.rs` (3 tests) |
+
+## 5i. Portable bundle (`bundle.rs`)
+
+| Criterion | Test |
+|---|---|
+| A bundle round-trips through JSON and imports (the certified fact is certain) | `bundle::round_trips_through_json_and_imports` |
+| Import rejects a corrupt quantum (full-body digest, not just the identity CID) | `bundle::import_rejects_corrupt_quantum` |
+| Import rejects a consensus-root mismatch (regenerated bulk ≠ shipped root) | `bundle::import_rejects_root_mismatch` |
 
 ## 6. Bridge (`bridge.rs`)
 
@@ -224,7 +233,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 138/138 green (117 unit + 21 e2e), 0 warnings
+cargo test          # all criteria above; must be 144/144 green (120 unit + 24 e2e), 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```
