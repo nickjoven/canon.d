@@ -5,7 +5,10 @@
 
 use std::collections::BTreeSet;
 
-use canon_d::{attestation_schema, project, signing_key, vouch, Closure, Memo, Quantum, Vouch};
+use canon_d::{
+    attestation_schema, project, signing_key, vouch, Claim, Closure, Memo, Quantum, Rat,
+    RatInterval, TransparencyLog, Vouch,
+};
 use serde_json::{json, Value};
 
 pub struct Corpus {
@@ -45,6 +48,26 @@ pub fn omega_corpus() -> Corpus {
 /// A single-ground body, for closure rules.
 pub fn ground(cid: &str) -> BTreeSet<String> {
     [cid.to_string()].into_iter().collect()
+}
+
+/// The Ω_Λ claim at three resolutions, for subsumption journeys:
+/// `precise` 13/19 ⊊ `approx` [0.67,0.69] ⊊ `loose` [0.6,0.7].
+pub fn omega_claims() -> Vec<Claim> {
+    let r = |n: i64, d: i64| Rat::new(n, d).unwrap();
+    vec![
+        Claim { cid: "precise".into(), interval: RatInterval::point(r(13, 19)) },
+        Claim { cid: "approx".into(), interval: RatInterval::new(r(67, 100), r(69, 100)).unwrap() },
+        Claim { cid: "loose".into(), interval: RatInterval::new(r(3, 5), r(7, 10)).unwrap() },
+    ]
+}
+
+/// A transparency log with the corpus's anchor and vouch recorded, plus the
+/// trusted-signer set — ready for `audit_anchor`.
+pub fn trusted_log(c: &Corpus) -> (TransparencyLog, Vec<String>) {
+    let mut log = TransparencyLog::new();
+    log.append(&c.anchor.cid);
+    log.append(&c.vouch.signature);
+    (log, vec![c.vouch.signer.clone()])
 }
 
 /// Assemble the grounded closure: anchor (boundary) ← generator ← proposition.
