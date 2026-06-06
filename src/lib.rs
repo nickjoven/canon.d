@@ -42,8 +42,8 @@ pub use quantum::{
     edge_annotation_schema, schema_cid, validate_edge_kind,
 };
 pub use generator::{
-    eval, generator_schema, mdl, project, provenance_audit, seal_program, EvalError, Memo, Orphan,
-    Projection, Rat,
+    eval, generator_schema, mdl, project, provenance_audit, seal_program, stern_brocot_to_depth,
+    walk, EvalError, Memo, Orphan, Projection, Rat,
 };
 pub use schema::{Field, FieldKind, Schema};
 pub use strata::{

@@ -347,13 +347,20 @@ correlate strongly enough that moving one usually moves the rest — useful for
 calibration (§8), but the only one you can *compute against* with a theorem
 behind it is MDL.
 
-The payoff: **"forced vs fitted" becomes computable.** Where the harmonics
-framework distinguishes a forced constant from a numerological fit by judgment,
-the substrate measures it as **generator description length** — a short generator
-that reproduces the value is forcing; a generator as long as the value it
-produces is a fit (it stores the answer, it does not derive it). MDL turns a
-held-opinion into a mechanical check — the manageability ladder, applied to the
-hardest call in the corpus.
+The payoff: **"forced vs fitted" becomes computable** — but at the right level,
+and 2b's implementation sharpened *which*. The naive hope ("a short generator for
+a value is forcing; a generator as long as its value is a fit") **fails per
+single node**: a Stern-Brocot node is *incompressible* — its value's bit-size
+equals its path length — so `walk(path)` does not beat `lit(n,d)` node-by-node
+(for the Fibonacci spine the literal is strictly smaller; see
+`generator.rs::single_node_mdl_does_not_universally_favor_recursion`). The win is
+at the **family / structure** level: one constant-size recursive rule grounds
+O(2^d) facts (`stern_brocot_to_depth`), so the *generator* is O(d) while the
+*enumerated bulk* is O(2^d). Forced-vs-fitted is the **amortized description
+length of the shared rule across everything it grounds**, not the length of any
+one derivation — exactly the holographic O(rule)→O(bulk) of §1. MDL turns the
+call mechanical, but the unit of comparison is the rule-over-a-family, not the
+single fact.
 
 ---
 
@@ -495,16 +502,20 @@ they are not mistaken for the endpoint.
   (no grounds in identity — dedup + cross-audit here), `assertion_schema`
   (`proposition` + `grounds` + `agent`), `corroboration`, `locked_fraction`. The
   false-positive `UnderMerge` is pinned (`quantum.rs`) and fixed.
-- **Generator quanta.** ✅ **Stage 1 + 2a built** (`src/generator.rs`):
+- **Generator quanta.** ✅ **Stage 1 + 2a + 2b built** (`src/generator.rs`):
   `generator_schema` (identity `(program, inputs)`), `seal_program`,
-  `provenance_audit` (the silent-drift detector for the generator half of
-  `grounds`), the `Rat` value algebra + compose-only total `eval`, `project`
-  (memoized normalization → a proposition), and `mdl`. *Not yet:* **Stage 2b —
-  structural recursion** (the `fold`/walk primitive with a structural-descent
-  guard) that reaches the Stern-Brocot / devil's-staircase generators and gives
-  MDL its forced-vs-fitted discriminating teeth (fractal compression); and the
-  mandatory back-link as a *schema constraint* (today provenance is an audit, not
-  an unrepresentability).
+  `provenance_audit` (silent-drift detector for the generator half of `grounds`),
+  the `Rat` algebra + total `eval`, `project` (memoized normalization → a
+  proposition), `mdl`, and — **2b** — structural recursion: `walk` (the
+  Stern-Brocot fold, total by descent on a finite path) and `fold` (a total
+  left-fold over a finite list), plus `stern_brocot_to_depth` demonstrating one
+  O(rule) generator grounding O(2^d) facts. **Finding:** forced-vs-fitted MDL
+  discriminates at the *family* level (the amortized rule), **not** per node —
+  Stern-Brocot nodes are individually incompressible. *Not yet:* the mandatory
+  back-link as a **schema constraint** (provenance is an audit today, not an
+  unrepresentability); user-defined recursion (only the `walk`/`fold` primitives
+  recurse — a general structural-recursion *combinator* with a descent checker is
+  the 2c-shaped extension); and value-algebra beyond `Rat`.
 - **Entailment / closure.** A `closure()` over the witness decision procedures
   (§6): interval containment, BDD-implies, dimension-match. Datalog-style
   least-model evaluation; supersession as stratified negation.
