@@ -45,6 +45,12 @@ pub struct Closure {
     /// Changes recorded but not yet cascaded (the lazy/batched path). `settle`
     /// processes them; `pending` reports how many await.
     staged: BTreeSet<String>,
+    /// The **cut frontier** from a floored settle: nodes a change reached *below*
+    /// the floor, whose certainty was deliberately not recomputed. Everything
+    /// behind them is transitively deferred. This is what keeps flooring from being
+    /// silent drift — the deferral is explicit and recoverable (a full `settle`
+    /// drains it to the exact result).
+    deferred: BTreeSet<String>,
 }
 
 impl Closure {
@@ -96,24 +102,26 @@ impl Closure {
         self.staged.insert(head);
     }
 
-    /// How many staged changes await settling. Non-zero ⇒ `certain()` may be
-    /// behind; call [`settle`](Self::settle) for an up-to-date core. (This is what
-    /// keeps deferral from being silent: pending work is always queryable.)
+    /// How many changes await settling — staged writes plus the deferred cut
+    /// frontier. Non-zero ⇒ `certain()` is a **sound under-approximation** (every
+    /// fact in it is certain, but some certain facts are deferred); call
+    /// [`settle`](Self::settle) for the exact core. This is what keeps both the
+    /// batched and the floored paths from being silent: deferred work is queryable.
     pub fn pending(&self) -> usize {
-        self.staged.len()
+        self.staged.len() + self.deferred.len()
     }
 
-    /// Process all staged changes in one batched fixpoint, restricted to the
-    /// affected region (the staged nodes and their transitive dependents) — cost
-    /// ∝ the region touched, not the whole graph. After `settle`, `certain()` is
-    /// **exactly** what the eager path would have produced.
+    /// Process all pending changes (staged ∪ deferred) in one batched fixpoint,
+    /// restricted to the affected region — cost ∝ the region touched. After
+    /// `settle`, `certain()` is **exactly** the eager result and `pending()` is 0.
     pub fn settle(&mut self) {
-        if self.staged.is_empty() {
+        if self.staged.is_empty() && self.deferred.is_empty() {
             return;
         }
-        // affected = staged ∪ transitive dependents of staged
+        let seeds: Vec<String> = self.staged.iter().chain(self.deferred.iter()).cloned().collect();
+        // affected = seeds ∪ transitive dependents
         let mut affected: BTreeSet<String> = BTreeSet::new();
-        let mut stack: Vec<String> = self.staged.iter().cloned().collect();
+        let mut stack = seeds;
         while let Some(c) = stack.pop() {
             if !affected.insert(c.clone()) {
                 continue;
@@ -126,16 +134,72 @@ impl Closure {
                 }
             }
         }
-        // staged anchors become certain
         for c in &self.staged {
             if self.boundary.contains(c) && !self.contested.contains(c) {
                 self.admitted.insert(c.clone());
             }
         }
-        // fixpoint over the affected region only
+        self.fixpoint(&affected);
+        self.staged.clear();
+        self.deferred.clear();
+    }
+
+    /// **Step 2 — floored settle.** Propagate certainty outward from the staged
+    /// changes (plus any deferred frontier) at `amplitude`, attenuating per hop;
+    /// nodes reached **at or above `floor`** are re-evaluated, nodes reached
+    /// **below** it become the deferred cut frontier. Cost ∝ the above-floor reach,
+    /// not the whole graph.
+    ///
+    /// Safety: this is a **sound under-approximation** — it never admits a fact
+    /// whose grounds aren't already certain, so `certain()` ⊆ the exact core; it
+    /// only *defers* certainty, and the deferral is explicit in `pending`. A
+    /// subsequent [`settle`](Self::settle) (or `settle_floored` with `floor = 0`)
+    /// recovers the exact result. Low attenuation (low channel) reaches far; high
+    /// attenuation (fine) settles locally — the Stribeck dissipation, governing the
+    /// closure.
+    pub fn settle_floored(&mut self, amplitude: f64, attenuation: f64, floor: f64) {
+        // staged anchors are certain at the source
+        for c in &self.staged {
+            if self.boundary.contains(c) && !self.contested.contains(c) {
+                self.admitted.insert(c.clone());
+            }
+        }
+        let seeds: Vec<String> = self.staged.iter().chain(self.deferred.iter()).cloned().collect();
+        let mut best: BTreeMap<String, f64> = BTreeMap::new();
+        let mut region: BTreeSet<String> = BTreeSet::new();
+        let mut cut: BTreeSet<String> = BTreeSet::new();
+        let mut frontier: Vec<(String, f64)> = seeds.iter().map(|s| (s.clone(), amplitude)).collect();
+        while let Some((node, amp)) = frontier.pop() {
+            if amp < floor {
+                cut.insert(node); // the deferred frontier — do not recurse past it
+                continue;
+            }
+            if best.get(&node).is_some_and(|&p| p >= amp) {
+                continue;
+            }
+            best.insert(node.clone(), amp);
+            region.insert(node.clone());
+            let next = amp * attenuation;
+            if let Some(ds) = self.dependents.get(&node) {
+                for d in ds {
+                    frontier.push((d.clone(), next));
+                }
+            }
+        }
+        self.fixpoint(&region);
+        for c in &region {
+            cut.remove(c); // reached above-floor by another path ⇒ not deferred
+        }
+        self.deferred = cut;
+        self.staged.clear();
+    }
+
+    /// Admit any node in `region` whose rule fires, to fixpoint. Shared by the
+    /// exact and floored settles.
+    fn fixpoint(&mut self, region: &BTreeSet<String>) {
         loop {
             let mut changed = false;
-            for p in &affected {
+            for p in region {
                 if self.admitted.contains(p) || self.contested.contains(p) {
                     continue;
                 }
@@ -148,7 +212,6 @@ impl Closure {
                 break;
             }
         }
-        self.staged.clear();
     }
 
     /// The **reach** of a node over this closure's own graph: how many nodes a
@@ -399,6 +462,75 @@ mod tests {
         assert_eq!(c.reach("a"), 3, "a change at the anchor touches a, P, Q");
         assert_eq!(c.reach("Q"), 1, "a change at the leaf touches only itself — cheap");
         assert!(c.reach("a") > c.reach("Q"), "the anchor is gravitational; the leaf is local");
+    }
+
+    // --- Step 2: floored settle ---
+
+    // rules wired before the anchor exists (so nothing is certain yet); the anchor
+    // then arrives and its certainty propagates outward through a→P→Q→R.
+    fn primed_chain() -> Closure {
+        let mut c = Closure::new();
+        c.add_rule("P".into(), set(&["a"]));
+        c.add_rule("Q".into(), set(&["P"]));
+        c.add_rule("R".into(), set(&["Q"]));
+        assert!(c.certain().is_empty(), "no anchor yet → nothing certain");
+        c
+    }
+
+    #[test]
+    fn floored_zero_floor_equals_exact() {
+        let mut c = primed_chain();
+        c.stage_anchor("a");
+        c.settle_floored(1.0, 0.5, 0.0); // floor 0 ⇒ nothing cut ⇒ exact
+        assert_eq!(*c.certain(), set(&["a", "P", "Q", "R"]));
+        assert_eq!(c.pending(), 0, "floor 0 leaves nothing deferred — recovers eager exactly");
+    }
+
+    #[test]
+    fn floored_defers_far_effects_without_false_certainty() {
+        let mut c = primed_chain();
+        c.stage_anchor("a");
+        c.settle_floored(1.0, 0.5, 0.3); // a=1, P=0.5 (≥), Q=0.25 (<) cut, R behind
+        // sound UNDER-approximation: only what's reached above floor is certain …
+        assert_eq!(*c.certain(), set(&["a", "P"]));
+        assert!(!c.is_certain("Q") && !c.is_certain("R"), "far effects deferred, not denied wrongly");
+        // … and the deferral is EXPLICIT (no silent drift) …
+        assert!(c.pending() > 0, "the cut frontier is pending");
+        // … and a full settle RECOVERS the exact core.
+        c.settle();
+        assert_eq!(*c.certain(), set(&["a", "P", "Q", "R"]));
+        assert_eq!(c.pending(), 0);
+    }
+
+    #[test]
+    fn floored_never_claims_false_certainty() {
+        // whatever the floor, certain() after a floored settle is a subset of the
+        // exact core — the substrate never asserts certainty it hasn't grounded.
+        let mut exact = primed_chain();
+        exact.stage_anchor("a");
+        exact.settle();
+        for &floor in &[0.0_f64, 0.3, 0.6, 0.95] {
+            let mut c = primed_chain();
+            c.stage_anchor("a");
+            c.settle_floored(1.0, 0.5, floor);
+            assert!(c.certain().is_subset(exact.certain()), "floor {floor}: no false certainty");
+        }
+    }
+
+    #[test]
+    fn coarse_reaches_far_fine_settles_local() {
+        // low attenuation (low channel / coarse): reaches the whole chain, no deferral
+        let mut coarse = primed_chain();
+        coarse.stage_anchor("a");
+        coarse.settle_floored(1.0, 0.9, 0.3);
+        assert_eq!(*coarse.certain(), set(&["a", "P", "Q", "R"]));
+        assert_eq!(coarse.pending(), 0, "coarse signal propagates far");
+
+        // high attenuation (fine / high channel): settles locally, rest deferred
+        let mut fine = primed_chain();
+        fine.stage_anchor("a");
+        fine.settle_floored(1.0, 0.3, 0.3);
+        assert!(fine.certain().len() < 4 && fine.pending() > 0, "fine signal dissipates locally");
     }
 
     #[test]

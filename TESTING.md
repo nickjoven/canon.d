@@ -86,6 +86,9 @@ broken regardless of any other green test.
 | A contested fact is excluded and cannot certify others (cautious core) | `closure::contested_is_excluded_and_propagates` |
 | **Lazy/batched** (Step 1): stage many, settle once == eager; pending() surfaces unsettled work | `closure::staged_then_settle_equals_eager`, `closure::settle_is_idempotent_and_handles_late_anchor` |
 | `reach()` is the per-change cost the floor will gate (Step 2) | `closure::reach_is_the_cost_the_floor_will_gate` |
+| **Floored settle** (Step 2): `floor → 0` == exact; defers far effects to `pending` (recoverable, no silent drift) | `closure::floored_zero_floor_equals_exact`, `closure::floored_defers_far_effects_without_false_certainty` |
+| Floored settle is a **sound under-approximation** — never claims false certainty at any floor | `closure::floored_never_claims_false_certainty` |
+| Coarse (low-attenuation) signal reaches far; fine settles local | `closure::coarse_reaches_far_fine_settles_local` |
 
 ## 5c. Chain verification — consistency, end to end (`chain.rs`)
 
@@ -193,7 +196,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 102/102 green, 0 warnings
+cargo test          # all criteria above; must be 106/106 green, 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```
