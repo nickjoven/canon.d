@@ -21,6 +21,8 @@ pub mod bridge;
 mod canon;
 pub mod chain;
 pub mod closure;
+pub mod crypto;
+pub mod log;
 pub mod cross_topology;
 pub mod domain;
 pub mod generator;
@@ -36,8 +38,10 @@ pub use bridge::{
     structuring_schema, utterance_schema,
 };
 pub use canon::{Canon, CanonError};
-pub use chain::{consensus_root, verify_regeneration};
+pub use chain::{audit_anchor, consensus_root, verify_regeneration, AnchorAudit};
 pub use closure::Closure;
+pub use crypto::{signing_key, verify_vouch, vouch, Vouch};
+pub use log::{LogEntry, TransparencyLog};
 pub use cross_topology::{CrossTopologyView, DomainBridge, Disagreement, TransitivePath};
 pub use domain::Domain;
 pub use mapping::{Direction, Mapping, MappingBuilder, mapping_schema};

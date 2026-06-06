@@ -28,7 +28,9 @@
 use serde_json::Value;
 
 use crate::closure::Closure;
+use crate::crypto::{verify_vouch, Vouch};
 use crate::generator::{project, EvalError, Memo, Rat};
+use crate::log::TransparencyLog;
 
 /// A single hash committing to the **entire certain core** — a Merkle-style root
 /// over the closure's admitted set. Two parties agree on the consensus iff their
@@ -64,9 +66,64 @@ pub fn verify_regeneration(
     Ok(p.proposition.cid == expected_proposition_cid)
 }
 
+/// The accuracy-audit verdict for one anchor: *who* vouched (verified,
+/// trusted signers) and whether the vouch is *logged* in a verified transparency
+/// log. This is the boundary where accuracy is **audited** (not proven): an anchor
+/// is auditably-accurate when a trusted party non-repudiably vouched for it and
+/// that vouch is in an untampered log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnchorAudit {
+    pub attestation_cid: String,
+    /// Verified vouchers (public keys) whose signature over the CID checks out and
+    /// who are in the trusted set.
+    pub vouched_by: Vec<String>,
+    /// Is at least one valid vouch recorded in the (verified) log?
+    pub logged: bool,
+}
+
+impl AnchorAudit {
+    /// Auditably accurate iff some trusted party vouched *and* it was logged.
+    pub fn is_auditable(&self) -> bool {
+        !self.vouched_by.is_empty() && self.logged
+    }
+}
+
+/// Audit an anchor's accuracy provenance: collect the valid vouches from trusted
+/// signers, and confirm at least one is recorded in a verified log. `trusted` is
+/// the set of public keys (hex) you accept vouches from — your root of trust at
+/// the boundary. The log must itself verify, else `logged` is false (a rewritten
+/// log vouches for nothing).
+pub fn audit_anchor(
+    attestation_cid: &str,
+    vouches: &[Vouch],
+    trusted: &[String],
+    log: &TransparencyLog,
+) -> AnchorAudit {
+    let log_ok = log.verify();
+    let mut vouched_by = Vec::new();
+    let mut logged = false;
+    for v in vouches {
+        if v.attestation_cid != attestation_cid || !verify_vouch(v) {
+            continue;
+        }
+        if !trusted.iter().any(|t| t == &v.signer) {
+            continue;
+        }
+        if !vouched_by.contains(&v.signer) {
+            vouched_by.push(v.signer.clone());
+        }
+        // a vouch counts as logged when the log verifies and records it
+        if log_ok && log.contains(&v.signature) {
+            logged = true;
+        }
+    }
+    AnchorAudit { attestation_cid: attestation_cid.to_string(), vouched_by, logged }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::{signing_key, vouch};
     use crate::generator::{generator_schema, seal_program};
     use crate::quantum::Quantum;
     use crate::{attestation_schema, proposition_schema};
@@ -140,6 +197,47 @@ mod tests {
         c3.add_rule(generator.cid.clone(), [anchor.cid.clone()].into_iter().collect());
         c3.add_rule(substituted.cid.clone(), [generator.cid].into_iter().collect());
         assert_ne!(root, consensus_root(&c3), "a substituted fact moves the consensus root");
+    }
+
+    #[test]
+    fn anchor_accuracy_is_auditable_signed_and_logged() {
+        // The pair: a non-repudiable vouch + a tamper-evident log upgrade an
+        // anchor's accuracy from "delegated" to "auditable".
+        let anchor = Quantum::seal(
+            &attestation_schema(),
+            &json!({"instrument":"Planck","dataset":"2018","locator":"Omega_Lambda",
+                    "value":0.6847,"vouched_by":"nick"}),
+        )
+        .unwrap();
+
+        // A trusted voucher signs the anchor's CID; the vouch is appended to the log.
+        let sk = signing_key(&[9u8; 32]);
+        let v = vouch(&sk, &anchor.cid);
+        let trusted = vec![v.signer.clone()];
+        let mut log = TransparencyLog::new();
+        log.append(&anchor.cid);
+        log.append(&v.signature);
+
+        let audit = audit_anchor(&anchor.cid, &[v.clone()], &trusted, &log);
+        assert!(audit.is_auditable(), "trusted + logged ⇒ auditable");
+        assert_eq!(audit.vouched_by, vec![v.signer.clone()]);
+
+        // An UNTRUSTED signer's vouch doesn't count, even if cryptographically valid.
+        let stranger = vouch(&signing_key(&[1u8; 32]), &anchor.cid);
+        let a2 = audit_anchor(&anchor.cid, &[stranger], &trusted, &log);
+        assert!(!a2.is_auditable(), "a valid signature from outside the root of trust is not enough");
+
+        // A vouch that was never logged: trusted but not auditable (no record).
+        let unlogged_log = TransparencyLog::new();
+        let a3 = audit_anchor(&anchor.cid, &[v.clone()], &trusted, &unlogged_log);
+        assert_eq!(a3.vouched_by, vec![v.signer.clone()], "the vouch is valid …");
+        assert!(!a3.logged, "… but unlogged → not auditable");
+        assert!(!a3.is_auditable());
+
+        // A vouch over a DIFFERENT anchor doesn't audit this one.
+        let other = vouch(&sk, "some-other-cid");
+        let a4 = audit_anchor(&anchor.cid, &[other], &trusted, &log);
+        assert!(a4.vouched_by.is_empty(), "a vouch for another CID is irrelevant here");
     }
 
     #[test]

@@ -94,6 +94,17 @@ broken regardless of any other green test.
 | In-place tamper fails `verify`; substitution moves the consensus root | same |
 | A generator that did not produce a fact fails `verify_regeneration` | `chain::regeneration_mismatch_is_caught` |
 
+## 5d. Accuracy provenance — signed vouches + transparency log (`crypto.rs`, `log.rs`, `chain.rs`)
+
+| Criterion | Test |
+|---|---|
+| A vouch verifies and is tamper-evident (changing the CID or signature fails) | `crypto::vouch_verifies_and_is_tamper_evident` |
+| Distinct secrets → distinct signers; no impersonation by key-swap | `crypto::different_seeds_are_distinct_signers` |
+| Keygen is deterministic (reproducible, no RNG) | `crypto::keygen_is_deterministic` |
+| Append-only log verifies; editing/reordering/dropping a past entry is detected | `log::editing_a_past_entry_is_detected`, `log::reorder_and_drop_are_detected` |
+| The head commits to the whole history | `log::head_commits_to_history` |
+| An anchor is auditable iff a **trusted** party vouched **and** it was logged | `chain::anchor_accuracy_is_auditable_signed_and_logged` |
+
 ## 6. Bridge (`bridge.rs`)
 
 | Criterion | Test |
@@ -130,14 +141,16 @@ oversights; a test that claimed them would be lying.
    seal time; `admissible_propositions` does that downstream.
 7. **`locked_fraction` is schema-homogeneous** (1.0 or 0.0 per call) — mixed-bag
    coverage is not yet computed.
-8. **Consistency is proven; accuracy is not.** `chain` verifies the chain is
-   internally faithful and reproducible (consistency) and roots it in its anchors,
-   but **no test claims a fact is true** — accuracy bottoms out at the anchors'
-   vouches. Two crypto constructs that would make accuracy *auditable* (still not
-   provable) are unbuilt: a **hash-chained / Merkle transparency log** (so "the log
-   wasn't rewritten" is verifiable — today the log is trusted) and **signed
-   attestations** (so each anchor's vouch is non-repudiable — today `vouched_by` is
-   a plain name).
+8. **Consistency is proven; accuracy is auditable, never provable.** `chain`
+   verifies the chain is internally faithful and reproducible (consistency); the
+   signed-vouch + transparency-log pair (`crypto`/`log`) makes each anchor's vouch
+   **non-repudiable and tamper-evidently logged** — so accuracy is now *auditable*
+   (you learn who vouched, attributably, and that it wasn't retro-edited). But
+   **no test claims a fact is true**: a vouch is a non-repudiable *assertion of*
+   accuracy, not a proof of it. Still open: wiring the log into `.ket` persistence,
+   multi-use key management (Ed25519 keys are multi-use here, but there is no
+   revocation/rotation), and Merkle *inclusion proofs* (the log gives a hash chain,
+   not succinct membership proofs — see `consensus_root` for the closure analogue).
 9. **Not built / not claimed:** the **subsumption order** (entailment via the
    witness decision procedures — the *stronger* dedup that catches a re-derivation
    of an already-entailed claim; the grounded closure in §5b is built, this is
@@ -148,7 +161,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 81/81 green, 0 warnings
+cargo test          # all criteria above; must be 89/89 green, 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```
