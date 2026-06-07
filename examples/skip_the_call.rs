@@ -2,8 +2,11 @@
 //!
 //!   cargo run --example skip_the_call
 //!
-//! Failure mode it avoids: a cache keyed on identity RE-COMPUTES a fact it already
-//! implies. The gate skips on implication, provably.
+//! Documented failure (baseline): "systematic failures in basic two-hop reasoning
+//! — combining only two facts" — Song, Han & Goodman, "Large Language Model
+//! Reasoning Failures," arXiv:2602.06176 §4.1 (2026). Recognizing that a held fact
+//! *entails* the next one is exactly that two-hop step; the gate makes it on
+//! implication, provably (interval containment, exact).
 
 use std::collections::BTreeSet;
 

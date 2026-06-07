@@ -67,6 +67,9 @@ fn demo_skip() -> Value {
     json!({
         "demo": "skip",
         "title": "Skip the call — dedup by entailment",
+        "failure": "Compositional (two-hop) reasoning failure",
+        "cite": "Song, Han & Goodman 2026, §4.1",
+        "quote": "systematic failures in basic two-hop reasoning — combining only two facts",
         "requested": n,
         "calls_avoided": report.skipped,
         "remote_calls": report.novel.len(),
@@ -110,6 +113,9 @@ fn demo_drift() -> Value {
     json!({
         "demo": "drift",
         "title": "No silent drift — corroboration vs. a canonicalizer bug",
+        "failure": "Framing-effect / surface-form robustness failure",
+        "cite": "Song, Han & Goodman 2026, §3.1 & §4.2",
+        "quote": "logically equivalent but differently phrased prompts can lead to different results",
         "corroboration": {
             "same_cid": same_cid,
             "cid": short(&corroborated_cid),
@@ -183,6 +189,9 @@ fn demo_verify() -> Value {
     json!({
         "demo": "verify",
         "title": "Verify what you didn't compute",
+        "failure": "Self-assessment failure",
+        "cite": "Song, Han & Goodman 2026, §4.3",
+        "quote": "LLMs struggle even in assessing reasoning process … an arguably easier task than generation",
         "bundle_bytes": bundle_bytes,
         "consensus_root": short(&root),
         "agree_one_hash": agree_one_hash,
@@ -206,9 +215,17 @@ fn demo_verify() -> Value {
 // ---------------------------------------------------------------------------
 // human-readable rendering
 // ---------------------------------------------------------------------------
+// lead every demo with the documented LLM failure it neutralizes.
+fn print_failure_header(v: &Value) {
+    println!("\x1b[2mDocumented failure:\x1b[0m \x1b[1m{}\x1b[0m", v["failure"].as_str().unwrap());
+    println!("\x1b[2m  “{}”\x1b[0m", v["quote"].as_str().unwrap());
+    println!("\x1b[2m  — {}  arXiv:2602.06176\x1b[0m\n", v["cite"].as_str().unwrap());
+}
+
 fn print_skip(v: &Value) {
+    print_failure_header(v);
     let n = v["requested"].as_u64().unwrap();
-    println!("\x1b[1mSkip the call\x1b[0m — dedup by entailment\n");
+    println!("\x1b[1mSkip the call\x1b[0m — the substrate does the two-hop step the model can't\n");
     println!("Agent wants {n} facts. Naively → {n} remote calls.\n");
     for it in v["items"].as_array().unwrap() {
         let pad = format!("{:<28}", it["reason"].as_str().unwrap());
@@ -221,7 +238,8 @@ fn print_skip(v: &Value) {
 }
 
 fn print_drift(v: &Value) {
-    println!("\x1b[1mNo silent drift\x1b[0m — corroboration vs. a canonicalizer bug\n");
+    print_failure_header(v);
+    println!("\x1b[1mNo silent drift\x1b[0m — equivalent-but-rephrased can't diverge here\n");
     let c = &v["corroboration"];
     println!("Two agents reach Ω_Λ = 13/19 by different paths:");
     println!("  same CID? {}  → ONE node, corroborated (not a conflict)", c["same_cid"]);
@@ -236,7 +254,8 @@ fn print_drift(v: &Value) {
 }
 
 fn print_verify(v: &Value) {
-    println!("\x1b[1mVerify what you didn't compute\x1b[0m\n");
+    print_failure_header(v);
+    println!("\x1b[1mVerify what you didn't compute\x1b[0m — assessment, externalized\n");
     println!("Party A ships a {}-byte bundle (root {}).", v["bundle_bytes"], v["consensus_root"].as_str().unwrap());
     println!("Party B imported it — re-verified every quantum, replayed the log.");
     println!("  agree on the whole state by ONE hash? {}", v["agree_one_hash"]);

@@ -3,9 +3,11 @@
 //!
 //!   cargo run --example no_silent_drift
 //!
-//! Failure modes: (1) a naive dedup flags two independent derivations of one fact
-//! as a conflict-to-resolve; (2) a canonicalizer bug silently enters a duplicate
-//! "fact" into shared memory. Both handled correctly here.
+//! Documented failure (baseline): "logically equivalent but differently phrased
+//! prompts can lead to different results" — Song, Han & Goodman, arXiv:2602.06176
+//! §3.1 (framing effects) & §4.2 (robustness, 2026). 26/38 and 13/19 are the same
+//! value in different surface form; here they collapse to one address, and the
+//! dual-witness audit makes a canonicalizer bug loud instead of silent.
 
 use canon_d::{cross_audit, proposition_schema, CrossAuditConflict, Quantum};
 use serde_json::json;

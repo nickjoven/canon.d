@@ -80,6 +80,17 @@
   h2{font-family:var(--disp); font-weight:600; font-size:clamp(30px,4.4vw,48px); line-height:1.04; letter-spacing:-.02em; margin-bottom:14px}
   h2 em{font-style:italic; color:var(--amber)}
   .sub{color:var(--bone-dim); max-width:54ch; font-size:19px; margin-bottom:36px}
+  /* documented-failure banner — leads every demo */
+  .failure{
+    border-left:2px solid var(--red); background:linear-gradient(90deg,rgba(229,72,77,.06),transparent);
+    padding:14px 0 14px 20px; margin:0 0 22px; max-width:62ch;
+  }
+  .failure .fl{font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--red); margin-bottom:7px}
+  .failure .fn{font-family:var(--disp); font-weight:600; font-size:22px; color:var(--bone); letter-spacing:-.01em}
+  .failure .fq{font-style:italic; color:var(--bone-dim); font-size:16.5px; margin-top:6px; line-height:1.45}
+  .failure .fc{font-family:var(--mono); font-size:12px; color:var(--bone-faint); margin-top:8px}
+  .failure .fc a{color:var(--teal); text-decoration:none; border-bottom:1px solid transparent}
+  .failure .fc a:hover{border-color:var(--teal)}
   .sub code{font-family:var(--mono); font-size:.84em; color:var(--bone); background:var(--ground-2); padding:1px 7px; border:1px solid var(--hair); border-radius:3px}
 
   /* ---- instrument panel ---- */
@@ -192,8 +203,14 @@
   <!-- DEMO 1 — SKIP -->
   <section class="reveal">
     <div class="tag">demo 01 &nbsp;/&nbsp; <b>skip the call</b></div>
-    <h2>Dedup by <em>entailment</em>, not by string match.</h2>
-    <p class="sub">A cache keyed on identity re-computes a fact it already <i>implies</i>. The gate skips on implication — and proves the skip was safe by interval containment, exact. <code>cargo run --bin canon-demo -- skip</code></p>
+    <div class="failure">
+      <div class="fl">documented failure · compositional reasoning</div>
+      <div class="fn">LLMs fail at basic two-hop reasoning.</div>
+      <div class="fq">“systematic failures in basic two-hop reasoning — combining only two facts”</div>
+      <div class="fc">— Song, Han &amp; Goodman, §4.1 · <a href="https://arxiv.org/abs/2602.06176">arXiv:2602.06176</a></div>
+    </div>
+    <h2>So the substrate does the step the model <em>can't</em>.</h2>
+    <p class="sub">Recognizing that a fact you already hold <i>entails</i> the next one is exactly that two-hop combination. The gate makes it on implication — and proves the skip was safe by interval containment, exact. <code>cargo run --bin canon-demo -- skip</code></p>
 
     <div class="panel">
       <div class="panel-head"><span class="led" id="led-skip"></span> dedup_gate <span class="cmd">3 candidates · 1 known fact</span></div>
@@ -211,8 +228,14 @@
   <!-- DEMO 2 — DRIFT -->
   <section class="reveal">
     <div class="tag">demo 02 &nbsp;/&nbsp; <b>no silent drift</b></div>
-    <h2>Corroboration vs. a canonicalizer bug, told apart <em>exactly</em>.</h2>
-    <p class="sub">Two agents agreeing is <i>one</i> node, not a conflict. But a bug that leaves <code>26/38</code> unreduced would slip a duplicate "fact" into shared memory. The dual-witness audit makes the silent drift loud. <code>canon-demo -- drift</code></p>
+    <div class="failure">
+      <div class="fl">documented failure · framing-effect / robustness</div>
+      <div class="fn">Same content, different surface form → different answer.</div>
+      <div class="fq">“logically equivalent but differently phrased prompts can lead to different results” (§3.1); semantically identical tasks with renamed variables cause “performance drops … critical robustness issues” (§4.2)</div>
+      <div class="fc">— Song, Han &amp; Goodman · <a href="https://arxiv.org/abs/2602.06176">arXiv:2602.06176</a></div>
+    </div>
+    <h2>On this substrate, equivalent-but-rephrased <em>can't</em> diverge.</h2>
+    <p class="sub"><code>26/38</code> and <code>13/19</code> are the same value in different surface form — the exact perturbation the survey flags. Canonicalization collapses them to one address; the dual-witness audit makes a canonicalizer bug loud instead of silent. <code>canon-demo -- drift</code></p>
 
     <div class="panel">
       <div class="panel-head"><span class="led" id="led-drift"></span> cross_audit <span class="cmd">witness: form vs. value</span></div>
@@ -231,8 +254,14 @@
   <!-- DEMO 3 — VERIFY -->
   <section class="reveal">
     <div class="tag">demo 03 &nbsp;/&nbsp; <b>verify what you didn't compute</b></div>
-    <h2>Portable, tamper-evident, <em>reputation-free</em> — then checked against reality.</h2>
-    <p class="sub">Party A ships a 1709-byte bundle. Party B re-verifies every quantum, replays the log, rebuilds the closure — having computed nothing — and agrees on the entire knowledge state by <i>one hash</i>. Then the imported fact is held against the measurement it claims. <code>canon-demo -- verify</code></p>
+    <div class="failure">
+      <div class="fl">documented failure · self-assessment</div>
+      <div class="fn">The model can't tell a wrong derivation from a right one.</div>
+      <div class="fq">“LLMs struggle even in assessing reasoning process … an arguably easier task than generation”</div>
+      <div class="fc">— Song, Han &amp; Goodman, §4.3 · <a href="https://arxiv.org/abs/2602.06176">arXiv:2602.06176</a></div>
+    </div>
+    <h2>So assessment is <em>externalized</em> — portable, tamper-evident, reputation-free.</h2>
+    <p class="sub">Party A ships a 1709-byte bundle. Party B re-verifies every quantum, replays the log, rebuilds the closure — having computed nothing — and agrees on the entire knowledge state by <i>one hash</i>. Then the fact is held against the measurement it claims: the check the model couldn't make, made for it. <code>canon-demo -- verify</code></p>
 
     <div class="panel" style="margin-bottom:30px">
       <div class="panel-head"><span class="led" id="led-verify"></span> import + consensus_root <span class="cmd">1709 B · root cce1285643c67bab</span></div>
@@ -294,6 +323,9 @@
   </section>
 
   <footer>
+    <div style="margin-bottom:16px"><b style="color:var(--bone-dim)">Baseline.</b> The three failures above are catalogued in
+      P. Song, P. Han &amp; N. Goodman, <i>“Large Language Model Reasoning Failures,”</i>
+      <a href="https://arxiv.org/abs/2602.06176">arXiv:2602.06176</a> (2026). canon.d doesn't fix the model — it puts the fact on a substrate where these failures can't survive, then proves it against a real measurement.</div>
     canon.d · branch quantum-tier · BLAKE3 content addressing · Ed25519 vouch · Datalog grounded closure<br>
     <span style="color:var(--bone-faint)">numbers verified by</span> <a href="deck.html">canon-demo --json</a> &nbsp;·&nbsp; harmonics lab → reviewed consensus → forward projection
   </footer>

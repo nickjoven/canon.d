@@ -50,6 +50,11 @@
   .lede b{color:var(--bone); font-weight:600}
   p.big{font-size:clamp(19px,2.3vw,24px); color:var(--bone-dim); max-width:50ch; line-height:1.5}
   p.big b{color:var(--bone); font-weight:600} p.big em{color:var(--teal); font-style:italic}
+  .cite{margin-top:18px; border-left:2px solid var(--red); padding:6px 0 6px 16px; max-width:52ch}
+  .cite .q{font-style:italic; color:var(--bone-dim); font-size:clamp(15px,1.8vw,18px); line-height:1.4}
+  .cite .src{font-family:var(--mono); font-size:12px; color:var(--bone-faint); margin-top:7px; letter-spacing:.04em}
+  .cite .src a{color:var(--teal); text-decoration:none}
+  .kicker .fail{color:var(--red)}
 
   .stat-grid{display:flex; gap:0; margin-top:40px; border:1px solid var(--hair-bright)}
   .stat-grid .c{flex:1; padding:24px 26px; border-right:1px solid var(--hair); background:var(--ground-2)}
@@ -111,15 +116,23 @@
 
   <!-- 2 — problem -->
   <section class="slide">
-    <div class="kicker">the problem</div>
-    <h2>Memory that <em>drifts</em>, caches that <em>re-compute</em>, facts you have to <em>trust</em>.</h2>
-    <p class="big">Embedding memory says two equal facts are "similar." A cache keyed on identity re-fetches what it already implies. And a shared corpus inherits whatever the loudest author vouched for. Three leaks — <b>one root cause</b>: the fact isn't bound to its own proof.</p>
+    <div class="kicker">the baseline · arXiv:2602.06176</div>
+    <h2>Three failures the field just <em>catalogued</em>.</h2>
+    <p class="big">A 2026 survey — Song, Han &amp; Goodman, <i>“Large Language Model Reasoning Failures”</i> — names them: <b>two-hop reasoning</b> (§4.1), <b>framing-effect robustness</b> (§3.1/§4.2), <b>self-assessment</b> (§4.3). It calls the first <em>intrinsic to the architecture</em>. You don't prompt these away.</p>
+    <div class="cite">
+      <div class="q">“significant reasoning failures persist, occurring even in seemingly simple scenarios.”</div>
+      <div class="src">— Song, Han &amp; Goodman 2026 · <a href="https://arxiv.org/abs/2602.06176">arXiv:2602.06176</a></div>
+    </div>
   </section>
 
   <!-- 3 — skip -->
   <section class="slide">
-    <div class="kicker">demo 01 · skip the call</div>
-    <h2>Dedup by <em>entailment</em>, not string match.</h2>
+    <div class="kicker">demo 01 · <span class="fail">two-hop reasoning failure (§4.1)</span></div>
+    <h2>The substrate does the step the model <em>can't</em>.</h2>
+    <div class="cite" style="margin-bottom:26px">
+      <div class="q">“systematic failures in basic two-hop reasoning — combining only two facts.”</div>
+      <div class="src">— §4.1 · recognizing a held fact <i>entails</i> the next one is that step</div>
+    </div>
     <div class="term">
       <div class="bar"><span class="d" style="background:var(--green)"></span> dedup_gate · 3 candidates · 1 known fact</div>
       <div class="body">
@@ -137,8 +150,12 @@
 
   <!-- 4 — drift -->
   <section class="slide">
-    <div class="kicker">demo 02 · no silent drift</div>
-    <h2>Corroboration vs. a canonicalizer bug — told apart <em>exactly</em>.</h2>
+    <div class="kicker">demo 02 · <span class="fail">framing-effect robustness (§3.1/§4.2)</span></div>
+    <h2>Equivalent-but-rephrased <em>can't</em> diverge here.</h2>
+    <div class="cite" style="margin-bottom:26px">
+      <div class="q">“logically equivalent but differently phrased prompts can lead to different results.”</div>
+      <div class="src">— §3.1 · 26/38 and 13/19 are equal — one address, by construction</div>
+    </div>
     <div class="term">
       <div class="bar"><span class="d" style="background:var(--red)"></span> cross_audit · witness: form vs. value</div>
       <div class="body">
@@ -153,8 +170,12 @@
 
   <!-- 5 — verify -->
   <section class="slide">
-    <div class="kicker">demo 03 · verify what you didn't compute</div>
-    <h2>Portable, tamper-evident, <em>reputation-free</em>.</h2>
+    <div class="kicker">demo 03 · <span class="fail">self-assessment failure (§4.3)</span></div>
+    <h2>The check the model couldn't make, <em>externalized</em>.</h2>
+    <div class="cite" style="margin-bottom:26px">
+      <div class="q">“LLMs struggle even in assessing reasoning process … an arguably easier task than generation.”</div>
+      <div class="src">— §4.3 · so the substrate assesses it: portable, tamper-evident, reputation-free</div>
+    </div>
     <div class="term">
       <div class="bar"><span class="d" style="background:var(--green)"></span> import + consensus_root · 1709 B · root cce1285643c67bab</div>
       <div class="body">
@@ -198,7 +219,10 @@
   <section class="slide">
     <div class="kicker">canon.d</div>
     <div class="pull">A fact that can't prove itself <b>isn't</b> knowledge — it's a rumor with a hash.</div>
-    <p class="big" style="margin-top:36px">One library. Three gates. <b>cargo run --bin canon-demo -- all --json</b> emits every number on these slides — nothing here is mocked. <em>harmonics lab → reviewed consensus → forward projection.</em></p>
+    <p class="big" style="margin-top:36px">One library. Three documented failures, neutralized at the substrate. <b>cargo run --bin canon-demo -- all --json</b> emits every number on these slides — nothing here is mocked. <em>harmonics lab → reviewed consensus → forward projection.</em></p>
+    <div class="cite" style="margin-top:30px; border-color:var(--bone-faint)">
+      <div class="src" style="margin-top:0">Baseline: P. Song, P. Han &amp; N. Goodman, <i>“Large Language Model Reasoning Failures,”</i> <a href="https://arxiv.org/abs/2602.06176">arXiv:2602.06176</a> (2026).</div>
+    </div>
   </section>
 
 </div>

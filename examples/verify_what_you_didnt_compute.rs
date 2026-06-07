@@ -3,8 +3,11 @@
 //!
 //!   cargo run --example verify_what_you_didnt_compute
 //!
-//! Failure modes it catches: (1) a tampered/forged fact slipped into a shared
-//! corpus; (2) a derived value that contradicts the measurement it claims.
+//! Documented failure (baseline): "LLMs struggle even in assessing reasoning
+//! process … an arguably easier task than generation" — Song, Han & Goodman,
+//! arXiv:2602.06176 §4.3 (2026). The model can't tell a wrong derivation from a
+//! right one; here the check is externalized — re-verify without trusting the
+//! producer, then reconcile against the measurement the value claims.
 
 use canon_d::{
     attestation_schema, consensus_root, export, import, project, proposition_schema, reconcile_gate,
