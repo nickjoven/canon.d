@@ -22,12 +22,14 @@ pub mod bundle;
 mod canon;
 pub mod chain;
 pub mod closure;
+pub mod cost;
 pub mod crypto;
 pub mod lineage;
 pub mod log;
 pub mod propagation;
 pub mod cross_topology;
 pub mod domain;
+pub mod gate;
 pub mod generator;
 pub mod mapping;
 pub mod quantum;
@@ -46,6 +48,10 @@ pub use canon::{Canon, CanonError};
 pub use bundle::{export, import, Bundle, BundleEntry, BundleError, Loaded, Rule, SchemaKind};
 pub use chain::{audit_anchor, consensus_root, verify_regeneration, AnchorAudit};
 pub use closure::Closure;
+pub use cost::{cost_report, Budget, CostReport};
+// note: `gate::Candidate` is *not* re-exported at the root (name clashes with
+// `alignment::Candidate`); reach it via `canon_d::gate::Candidate`.
+pub use gate::{dedup_gate, reconcile_gate, DedupReport, Disposition, GateOutcome, ReconcileReport};
 pub use crypto::{signing_key, verify_vouch, vouch, Vouch};
 pub use lineage::{lineage_closure, lineage_to_annotations, parse_lineage, TypedEdge};
 pub use log::{LogEntry, TransparencyLog};

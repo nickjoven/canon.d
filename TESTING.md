@@ -189,6 +189,15 @@ system-level invariants no unit test reaches. Plan + status: `tests/PLAN.md`.
 | A falsified verdict can contest the derived fact out of the certain core | `reconcile::a_falsified_verdict_can_contest_the_derived_fact` |
 | (e2e) An imported fact is empirically validated against the measurement | `e2e_portable::imported_fact_is_empirically_validated_against_the_measurement` |
 
+## 5k. CI/CD gates + cost reporting (`gate.rs`, `cost.rs`)
+
+| Criterion | Test |
+|---|---|
+| Dedup gate skips known (memo) and entailed (subsumption); computes only novel | `gate::dedup_skips_known_and_entailed_computes_novel` |
+| Reconcile gate passes Consistent, blocks Falsified (exit 1), warns on Tension | `gate::reconcile_gate_passes_consistent_blocks_falsified`, `gate::reconcile_gate_warns_on_tension` |
+| Cost report computes coverage (W(Ω)) + compression (facts/bit) + cost-per-fact | `cost::report_computes_coverage_and_compression` |
+| Cost report ratchets to a gate against a Budget (coverage floor / cost ceiling) | `cost::report_checks_against_a_budget` |
+
 ## 6. Bridge (`bridge.rs`)
 
 | Criterion | Test |
@@ -245,7 +254,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 152/152 green (127 unit + 25 e2e), 0 warnings
+cargo test          # all criteria above; must be 157/157 green (132 unit + 25 e2e), 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```
