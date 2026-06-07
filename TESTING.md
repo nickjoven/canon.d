@@ -178,6 +178,17 @@ system-level invariants no unit test reaches. Plan + status: `tests/PLAN.md`.
 | Import rejects a corrupt quantum (full-body digest, not just the identity CID) | `bundle::import_rejects_corrupt_quantum` |
 | Import rejects a consensus-root mismatch (regenerated bulk ≠ shipped root) | `bundle::import_rejects_root_mismatch` |
 
+## 5j. Boundary↔bulk reconciliation — empirical agreement (`reconcile.rs`)
+
+| Criterion | Test |
+|---|---|
+| A derived exact value reconciles with a measurement ± σ — the residual-in-σ verdict | `reconcile::omega_lambda_13_19_is_consistent_at_about_007_sigma` (13/19 vs Planck ≈ 0.07σ → Consistent) |
+| A wrong value is **Falsified**; a near miss is **Tension** | `reconcile::a_wrong_value_is_falsified`, `reconcile::a_near_miss_is_tension` |
+| Reconciliation reads the derived value from the cited fact's identity (composes with #1) | `reconcile::*` use `reconcile_quanta` |
+| The verdict seals as a verification quantum; re-reconciliation supersedes | `reconcile::verdict_seals_and_re_reconciliation_supersedes` |
+| A falsified verdict can contest the derived fact out of the certain core | `reconcile::a_falsified_verdict_can_contest_the_derived_fact` |
+| (e2e) An imported fact is empirically validated against the measurement | `e2e_portable::imported_fact_is_empirically_validated_against_the_measurement` |
+
 ## 6. Bridge (`bridge.rs`)
 
 | Criterion | Test |
@@ -234,7 +245,7 @@ oversights; a test that claimed them would be lying.
 ## Running
 
 ```sh
-cargo test          # all criteria above; must be 145/145 green (121 unit + 24 e2e), 0 warnings
+cargo test          # all criteria above; must be 152/152 green (127 unit + 25 e2e), 0 warnings
 cargo doc --no-deps # intra-doc links must resolve clean
 # clippy is not installed in the reference env; run it where available
 ```

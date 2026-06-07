@@ -104,6 +104,28 @@ fn forward_projection_is_certain_and_exact() {
 }
 
 #[test]
+fn imported_fact_is_empirically_validated_against_the_measurement() {
+    // The capstone: import a harmonics fact, then RECONCILE it against the
+    // measurement — structural grounding (it's certain) AND empirical agreement
+    // (it matches Planck at ~0.07σ). Correct forward knowledge = both.
+    let c = omega_corpus();
+    let loaded = import(&omega_bundle(&c)).unwrap();
+    let omega = loaded.certain_fact(&c.proposition.cid).expect("Ω_Λ is certain");
+
+    // a Planck measurement WITH uncertainty
+    let planck = canon_d::Quantum::seal(
+        &canon_d::attestation_schema(),
+        &json!({"instrument":"Planck","dataset":"2018","locator":"Omega_Lambda",
+                "value":0.6847,"uncertainty":0.0073,"vouched_by":"nick"}),
+    )
+    .unwrap();
+
+    let verdict = canon_d::reconcile_quanta(omega, &planck, &canon_d::Tolerance::default()).unwrap();
+    assert!(verdict.is_consistent(), "the imported exact fact agrees with Planck: {verdict:?}");
+    assert!(verdict.z() < 0.1, "at ~0.07σ, got {}", verdict.z());
+}
+
+#[test]
 fn import_rejects_a_corrupted_bundle() {
     let c = omega_corpus();
 
