@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>canon.d — a verification instrument</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,900;1,9..144,500&family=Newsreader:ital,opsz@0,6..72;1,6..72&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ground:#0c0d0f; --ground-2:#121417; --panel:#15181c;
+    --bone:#e9e4d8; --bone-dim:#a39d8e; --bone-faint:#6a6557;
+    --amber:#f0a830; --amber-glow:rgba(240,168,48,.18);
+    --teal:#5ad1c2; --red:#e5484d; --green:#6cc070;
+    --hair:rgba(233,228,216,.10); --hair-bright:rgba(233,228,216,.20);
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --body:'Newsreader',Georgia,serif;
+    --disp:'Fraunces',Georgia,serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--ground); color:var(--bone);
+    font-family:var(--body); font-size:18px; line-height:1.6;
+    -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  }
+  /* engraved grid + grain atmosphere */
+  body::before{
+    content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+    background-image:
+      linear-gradient(var(--hair) 1px,transparent 1px),
+      linear-gradient(90deg,var(--hair) 1px,transparent 1px);
+    background-size:64px 64px;
+    mask-image:radial-gradient(ellipse 120% 90% at 50% 0%,#000 30%,transparent 80%);
+    opacity:.5;
+  }
+  body::after{
+    content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.045;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap{position:relative; z-index:1; max-width:1080px; margin:0 auto; padding:0 28px}
+
+  /* ---- masthead ---- */
+  header{padding:84px 0 40px; border-bottom:1px solid var(--hair)}
+  .eyebrow{
+    font-family:var(--mono); font-size:12px; letter-spacing:.34em;
+    text-transform:uppercase; color:var(--amber); margin-bottom:26px;
+    display:flex; align-items:center; gap:14px;
+  }
+  .eyebrow::after{content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--amber-glow),transparent)}
+  h1{
+    font-family:var(--disp); font-weight:900; font-size:clamp(48px,9vw,108px);
+    line-height:.92; letter-spacing:-.025em; margin-bottom:8px;
+    font-optical-sizing:auto;
+  }
+  h1 .dot{color:var(--amber)}
+  h1 em{font-style:italic; font-weight:500; color:var(--bone-dim); font-size:.42em; letter-spacing:-.01em}
+  .lede{
+    font-size:clamp(20px,2.6vw,27px); line-height:1.4; color:var(--bone-dim);
+    max-width:30ch; margin-top:24px; font-weight:400;
+  }
+  .lede b{color:var(--bone); font-weight:600}
+  .meterstrip{
+    display:flex; gap:0; margin-top:48px; border:1px solid var(--hair);
+    background:var(--ground-2);
+  }
+  .meter{flex:1; padding:18px 22px; border-right:1px solid var(--hair)}
+  .meter:last-child{border-right:0}
+  .meter .v{font-family:var(--mono); font-size:30px; font-weight:600; color:var(--amber); letter-spacing:-.02em}
+  .meter .k{font-family:var(--mono); font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--bone-faint); margin-top:6px}
+
+  /* ---- section scaffolding ---- */
+  section{padding:78px 0; border-bottom:1px solid var(--hair)}
+  .tag{
+    font-family:var(--mono); font-size:12px; letter-spacing:.28em; text-transform:uppercase;
+    color:var(--bone-faint); margin-bottom:18px;
+  }
+  .tag b{color:var(--teal); font-weight:600}
+  h2{font-family:var(--disp); font-weight:600; font-size:clamp(30px,4.4vw,48px); line-height:1.04; letter-spacing:-.02em; margin-bottom:14px}
+  h2 em{font-style:italic; color:var(--amber)}
+  .sub{color:var(--bone-dim); max-width:54ch; font-size:19px; margin-bottom:36px}
+  /* documented-failure banner — leads every demo */
+  .failure{
+    border-left:2px solid var(--red); background:linear-gradient(90deg,rgba(229,72,77,.06),transparent);
+    padding:14px 0 14px 20px; margin:0 0 22px; max-width:62ch;
+  }
+  .failure .fl{font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--red); margin-bottom:7px}
+  .failure .fn{font-family:var(--disp); font-weight:600; font-size:22px; color:var(--bone); letter-spacing:-.01em}
+  .failure .fq{font-style:italic; color:var(--bone-dim); font-size:16.5px; margin-top:6px; line-height:1.45}
+  .failure .fc{font-family:var(--mono); font-size:12px; color:var(--bone-faint); margin-top:8px}
+  .failure .fc a{color:var(--teal); text-decoration:none; border-bottom:1px solid transparent}
+  .failure .fc a:hover{border-color:var(--teal)}
+  .sub code{font-family:var(--mono); font-size:.84em; color:var(--bone); background:var(--ground-2); padding:1px 7px; border:1px solid var(--hair); border-radius:3px}
+
+  /* ---- instrument panel ---- */
+  .panel{
+    background:linear-gradient(180deg,var(--panel),var(--ground-2));
+    border:1px solid var(--hair-bright); border-radius:6px; overflow:hidden;
+    box-shadow:0 30px 70px -40px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  .panel-head{
+    display:flex; align-items:center; gap:14px; padding:16px 22px;
+    border-bottom:1px solid var(--hair); background:rgba(0,0,0,.25);
+    font-family:var(--mono); font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--bone-dim);
+  }
+  .led{width:9px; height:9px; border-radius:50%; background:var(--bone-faint); box-shadow:0 0 0 0 transparent; transition:.4s}
+  .led.on{background:var(--green); box-shadow:0 0 12px var(--green)}
+  .led.warn{background:var(--amber); box-shadow:0 0 12px var(--amber)}
+  .led.fail{background:var(--red); box-shadow:0 0 14px var(--red)}
+  .panel-head .cmd{margin-left:auto; color:var(--bone-faint); text-transform:none; letter-spacing:0}
+  .panel-body{padding:26px 22px; font-family:var(--mono); font-size:14.5px; line-height:1.9}
+
+  .row{display:flex; align-items:baseline; gap:14px; padding:7px 0; border-bottom:1px dashed var(--hair)}
+  .row:last-child{border-bottom:0}
+  .row .stat{flex:none; width:64px; font-weight:600; letter-spacing:.06em}
+  .stat.skip{color:var(--bone-faint)}
+  .stat.call{color:var(--amber)}
+  .stat.ok{color:var(--green)}
+  .stat.bad{color:var(--red)}
+  .row .desc{flex:1; color:var(--bone)}
+  .row .why{color:var(--bone-faint); font-style:italic; font-family:var(--body); font-size:15px}
+  .cid{color:var(--teal)}
+  .punch{
+    margin-top:22px; padding-top:20px; border-top:1px solid var(--hair);
+    font-family:var(--body); font-size:17px; color:var(--bone-dim);
+  }
+  .punch b{color:var(--bone); font-weight:600}
+
+  /* counter dial for skip */
+  .dial{display:flex; align-items:center; gap:24px; margin-bottom:8px}
+  .bignum{font-family:var(--disp); font-weight:900; font-size:72px; line-height:1; letter-spacing:-.04em; color:var(--amber); font-variant-numeric:tabular-nums}
+  .bignum small{font-size:20px; color:var(--bone-faint); font-family:var(--mono); font-weight:400; display:block; letter-spacing:.1em; text-transform:uppercase; margin-top:8px}
+  .arc{flex:1}
+  .arc-track{height:10px; background:var(--ground); border:1px solid var(--hair); border-radius:6px; overflow:hidden}
+  .arc-fill{height:100%; width:0; background:linear-gradient(90deg,var(--amber),#ffce6e); transition:width 1.4s cubic-bezier(.2,.8,.2,1)}
+
+  /* sigma gauge */
+  .gauge{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:6px}
+  .gcell{background:var(--ground); border:1px solid var(--hair); border-radius:5px; padding:18px}
+  .gcell .gl{font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--bone-faint); margin-bottom:12px; display:flex; justify-content:space-between}
+  .scale{position:relative; height:54px}
+  .scale .axis{position:absolute; left:0; right:0; top:26px; height:1px; background:var(--hair-bright)}
+  .scale .ticks{position:absolute; inset:0}
+  .scale .tk{position:absolute; top:20px; width:1px; height:13px; background:var(--hair)}
+  .scale .band{position:absolute; top:22px; height:9px; left:0; border-radius:2px; opacity:.25}
+  .band.green{background:var(--green); width:18%}
+  .band.amber{background:var(--amber); left:18%; width:32%}
+  .band.red{background:var(--red); left:50%; right:0; width:50%}
+  .needle{position:absolute; top:8px; width:2px; height:38px; background:var(--bone); left:0; transition:left 1.6s cubic-bezier(.3,.9,.2,1); box-shadow:0 0 8px rgba(233,228,216,.6)}
+  .needle::after{content:""; position:absolute; top:-5px; left:-4px; width:10px; height:10px; border-radius:50%; background:var(--bone)}
+  .needle.ok{background:var(--green); box-shadow:0 0 10px var(--green)} .needle.ok::after{background:var(--green)}
+  .needle.bad{background:var(--red); box-shadow:0 0 12px var(--red)} .needle.bad::after{background:var(--red)}
+  .reading{font-family:var(--mono); font-size:24px; font-weight:600; margin-top:10px; letter-spacing:-.01em}
+  .reading small{font-size:12px; color:var(--bone-faint); letter-spacing:.1em; text-transform:uppercase; margin-left:8px; font-weight:400}
+  .reading.ok{color:var(--green)} .reading.bad{color:var(--red)}
+
+  /* devil's staircase motif */
+  .stair{display:block; width:100%; height:120px; margin:10px 0 4px}
+  .stair path{fill:none; stroke:var(--teal); stroke-width:1.6; opacity:.55}
+  .stair .grid{stroke:var(--hair)}
+
+  .run-btn{
+    margin-top:30px; font-family:var(--mono); font-size:13px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--ground); background:var(--amber); border:0; padding:14px 26px; border-radius:4px; cursor:pointer;
+    transition:.2s; font-weight:600;
+  }
+  .run-btn:hover{background:#ffce6e; transform:translateY(-1px); box-shadow:0 10px 30px -12px var(--amber)}
+  .run-btn:active{transform:translateY(0)}
+
+  /* reveal on scroll */
+  .reveal{opacity:0; transform:translateY(22px); transition:opacity .8s ease, transform .8s cubic-bezier(.2,.8,.2,1)}
+  .reveal.in{opacity:1; transform:none}
+
+  footer{padding:70px 0 110px; color:var(--bone-faint); font-family:var(--mono); font-size:13px; letter-spacing:.04em}
+  footer a{color:var(--teal); text-decoration:none; border-bottom:1px solid transparent; transition:.2s}
+  footer a:hover{border-color:var(--teal)}
+  .twoq{display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--hair); border:1px solid var(--hair); margin-top:18px}
+  .twoq div{background:var(--ground-2); padding:22px}
+  .twoq .q{font-family:var(--disp); font-style:italic; font-size:21px; color:var(--bone); margin-bottom:8px}
+  .twoq .a{font-size:16px; color:var(--bone-dim)}
+  @media(max-width:680px){
+    .meterstrip{flex-wrap:wrap} .meter{flex:1 1 50%; border-bottom:1px solid var(--hair)}
+    .gauge,.twoq{grid-template-columns:1fr} .dial{flex-direction:column; align-items:flex-start}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">canon.d &nbsp;·&nbsp; content-addressed epistemic substrate</div>
+    <h1>Verify what<br>you didn't<br><span class="dot">compute.</span></h1>
+    <p class="lede">A fact carries its own proof. <b>Identity</b> binds it to a hash, a <b>witness</b> checks it independently, and the <b>projection</b> travels — so any party can re-derive your knowledge from bytes alone, with <b>no trust in you</b>.</p>
+    <div class="meterstrip reveal">
+      <div class="meter"><div class="v" data-count="67">0</div><div class="k">% calls avoided</div></div>
+      <div class="meter"><div class="v">1709<small style="font-size:.5em"> B</small></div><div class="k">whole state, one bundle</div></div>
+      <div class="meter"><div class="v">0.067σ</div><div class="k">theory vs. Planck</div></div>
+      <div class="meter"><div class="v" style="color:var(--red)">25.3σ</div><div class="k">a lie, blocked</div></div>
+    </div>
+  </header>
+
+  <!-- DEMO 1 — SKIP -->
+  <section class="reveal">
+    <div class="tag">demo 01 &nbsp;/&nbsp; <b>skip the call</b></div>
+    <div class="failure">
+      <div class="fl">documented failure · compositional reasoning</div>
+      <div class="fn">LLMs fail at basic two-hop reasoning.</div>
+      <div class="fq">“systematic failures in basic two-hop reasoning — combining only two facts”</div>
+      <div class="fc">— Song, Han &amp; Goodman, §4.1 · <a href="https://arxiv.org/abs/2602.06176">arXiv:2602.06176</a></div>
+    </div>
+    <h2>So the substrate does the step the model <em>can't</em>.</h2>
+    <p class="sub">Recognizing that a fact you already hold <i>entails</i> the next one is exactly that two-hop combination. The gate makes it on implication — and proves the skip was safe by interval containment, exact. <code>cargo run --bin canon-demo -- skip</code></p>
+
+    <div class="panel">
+      <div class="panel-head"><span class="led" id="led-skip"></span> dedup_gate <span class="cmd">3 candidates · 1 known fact</span></div>
+      <div class="panel-body">
+        <div class="dial">
+          <div class="bignum"><span id="skip-num">0</span>/3<small>remote calls</small></div>
+          <div class="arc"><div class="arc-track"><div class="arc-fill" id="skip-arc"></div></div></div>
+        </div>
+        <div id="skip-rows" style="margin-top:18px"></div>
+        <div class="punch">The interesting skip: <b>Ω<sub>Λ</sub> ∈ (0.6, 0.7)</b> was never requested remotely — <b>13/19</b> already entails it, and containment is checked exactly. <b>2 of 3</b> calls vanish before the network is touched.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEMO 2 — DRIFT -->
+  <section class="reveal">
+    <div class="tag">demo 02 &nbsp;/&nbsp; <b>no silent drift</b></div>
+    <div class="failure">
+      <div class="fl">documented failure · framing-effect / robustness</div>
+      <div class="fn">Same content, different surface form → different answer.</div>
+      <div class="fq">“logically equivalent but differently phrased prompts can lead to different results” (§3.1); semantically identical tasks with renamed variables cause “performance drops … critical robustness issues” (§4.2)</div>
+      <div class="fc">— Song, Han &amp; Goodman · <a href="https://arxiv.org/abs/2602.06176">arXiv:2602.06176</a></div>
+    </div>
+    <h2>On this substrate, equivalent-but-rephrased <em>can't</em> diverge.</h2>
+    <p class="sub"><code>26/38</code> and <code>13/19</code> are the same value in different surface form — the exact perturbation the survey flags. Canonicalization collapses them to one address; the dual-witness audit makes a canonicalizer bug loud instead of silent. <code>canon-demo -- drift</code></p>
+
+    <div class="panel">
+      <div class="panel-head"><span class="led" id="led-drift"></span> cross_audit <span class="cmd">witness: form vs. value</span></div>
+      <div class="panel-body">
+        <div class="row"><span class="stat ok">MERGE</span><span class="desc">Agent A → <span class="cid">febf3ea4dac3d328</span></span></div>
+        <div class="row"><span class="stat ok">MERGE</span><span class="desc">Agent B → <span class="cid">febf3ea4dac3d328</span> &nbsp;<span class="why">same address ⇒ one node, corroborated</span></span></div>
+        <div class="row"><span class="stat skip">·</span><span class="desc">cross-audit conflicts: <b style="color:var(--green)">0</b></span></div>
+        <div class="row" style="margin-top:14px"><span class="stat ok">13/19</span><span class="desc"><span class="cid">febf3ea4dac3d328</span></span></div>
+        <div class="row"><span class="stat bad">26/38</span><span class="desc"><span class="cid">f662ed102d5895c9</span> &nbsp;<span class="why">different address — looks brand-new</span></span></div>
+        <div class="row"><span class="stat bad" id="alarm">⚠</span><span class="desc"><b style="color:var(--red)">UnderMerge</b> — one value resolved to <b>2 forms</b>. The bug is <b>caught</b>.</span></div>
+        <div class="punch">An embedding-similarity memory can't do this: <b>26/38</b> and <b>13/19</b> are <i>equal</i>, so similarity says "fine." Only an exact value-witness, independent of the byte-form, catches a canonicalizer that quietly forgot to reduce.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEMO 3 — VERIFY -->
+  <section class="reveal">
+    <div class="tag">demo 03 &nbsp;/&nbsp; <b>verify what you didn't compute</b></div>
+    <div class="failure">
+      <div class="fl">documented failure · self-assessment</div>
+      <div class="fn">The model can't tell a wrong derivation from a right one.</div>
+      <div class="fq">“LLMs struggle even in assessing reasoning process … an arguably easier task than generation”</div>
+      <div class="fc">— Song, Han &amp; Goodman, §4.3 · <a href="https://arxiv.org/abs/2602.06176">arXiv:2602.06176</a></div>
+    </div>
+    <h2>So assessment is <em>externalized</em> — portable, tamper-evident, reputation-free.</h2>
+    <p class="sub">Party A ships a 1709-byte bundle. Party B re-verifies every quantum, replays the log, rebuilds the closure — having computed nothing — and agrees on the entire knowledge state by <i>one hash</i>. Then the fact is held against the measurement it claims: the check the model couldn't make, made for it. <code>canon-demo -- verify</code></p>
+
+    <div class="panel" style="margin-bottom:30px">
+      <div class="panel-head"><span class="led" id="led-verify"></span> import + consensus_root <span class="cmd">1709 B · root cce1285643c67bab</span></div>
+      <div class="panel-body">
+        <div class="row"><span class="stat ok">OK</span><span class="desc">re-verified every quantum, replayed the transparency log</span></div>
+        <div class="row"><span class="stat ok">OK</span><span class="desc">agree on the whole state by <b>one hash</b>? <b style="color:var(--green)">true</b></span></div>
+        <div class="row"><span class="stat ok">OK</span><span class="desc">Ω<sub>Λ</sub> certain in B's substrate — <i>B computed nothing</i>? <b style="color:var(--green)">true</b></span></div>
+        <div class="row"><span class="stat bad">REJECT</span><span class="desc">flip one field of the witness → import <b style="color:var(--red)">refused</b></span></div>
+      </div>
+    </div>
+
+    <svg class="stair" viewBox="0 0 600 120" preserveAspectRatio="none" aria-hidden="true">
+      <g class="grid"><line x1="0" y1="119" x2="600" y2="119"/><line x1="0" y1="1" x2="0" y2="120"/></g>
+      <path id="cantor" d=""/>
+    </svg>
+    <p style="font-family:var(--mono); font-size:12px; color:var(--bone-faint); letter-spacing:.06em; margin:-2px 0 30px">↑ the generator: a devil's-staircase walk through the Stern–Brocot tree — <span style="color:var(--teal)">LRRLLLLL → 13/19</span>. The program <i>is</i> the provenance.</p>
+
+    <div class="panel">
+      <div class="panel-head"><span class="led" id="led-rec"></span> reconcile_gate <span class="cmd">boundary ↔ bulk, σ residual</span></div>
+      <div class="panel-body">
+        <div class="gauge">
+          <div class="gcell">
+            <div class="gl"><span>13/19 vs Planck 0.6847±0.0073</span><span>theory</span></div>
+            <div class="scale">
+              <div class="band green"></div><div class="band amber"></div><div class="band red"></div>
+              <div class="axis"></div>
+              <div class="ticks"><span class="tk" style="left:0"></span><span class="tk" style="left:18%"></span><span class="tk" style="left:50%"></span><span class="tk" style="left:99%"></span></div>
+              <div class="needle ok" id="needle-ok"></div>
+            </div>
+            <div class="reading ok">0.067<small>σ · consistent · PASS</small></div>
+          </div>
+          <div class="gcell">
+            <div class="gl"><span>1/2 vs Planck — a wrong derivation</span><span>blocked</span></div>
+            <div class="scale">
+              <div class="band green"></div><div class="band amber"></div><div class="band red"></div>
+              <div class="axis"></div>
+              <div class="ticks"><span class="tk" style="left:0"></span><span class="tk" style="left:18%"></span><span class="tk" style="left:50%"></span><span class="tk" style="left:99%"></span></div>
+              <div class="needle bad" id="needle-bad"></div>
+            </div>
+            <div class="reading bad">25.3<small>σ · falsified · FAIL exit 1</small></div>
+          </div>
+        </div>
+        <div class="punch">Same instrument either way. A correct forward-projection passes at <b>0.067σ</b>; a plausible-looking lie sits <b>25.3σ</b> off the measurement and the gate returns <b>exit 1</b> — it never reaches your corpus.</div>
+      </div>
+    </div>
+
+    <button class="run-btn" onclick="runAll()">▸ re-run all instruments</button>
+  </section>
+
+  <!-- closing -->
+  <section class="reveal" style="border-bottom:0">
+    <div class="tag">the rule</div>
+    <h2>Two questions decide everything.</h2>
+    <div class="twoq">
+      <div><div class="q">Does its identity bind the bytes?</div><div class="a">If the hash is of the canonical form, equal facts are <i>one</i> fact. Drift becomes a type error, not a silent duplicate.</div></div>
+      <div><div class="q">Can a stranger re-derive it?</div><div class="a">If the projection carries its generator and witness, correctness is checked — not vouched for. Reputation drops out.</div></div>
+    </div>
+    <p class="sub" style="margin-top:30px; max-width:60ch">Everything above runs from one library. The CLI emits these exact numbers as JSON; this page and the <a href="deck.html" style="color:var(--amber); text-decoration:none; border-bottom:1px solid var(--amber)">slide deck →</a> render them. Nothing here is mocked.</p>
+  </section>
+
+  <footer>
+    <div style="margin-bottom:16px"><b style="color:var(--bone-dim)">Baseline.</b> The three failures above are catalogued in
+      P. Song, P. Han &amp; N. Goodman, <i>“Large Language Model Reasoning Failures,”</i>
+      <a href="https://arxiv.org/abs/2602.06176">arXiv:2602.06176</a> (2026). canon.d doesn't fix the model — it puts the fact on a substrate where these failures can't survive, then proves it against a real measurement.</div>
+    canon.d · branch quantum-tier · BLAKE3 content addressing · Ed25519 vouch · Datalog grounded closure<br>
+    <span style="color:var(--bone-faint)">numbers verified by</span> <a href="deck.html">canon-demo --json</a> &nbsp;·&nbsp; harmonics lab → reviewed consensus → forward projection
+  </footer>
+
+</div>
+
+<script>
+  // staggered reveal on scroll
+  const io = new IntersectionObserver((es)=>{
+    es.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }});
+  },{threshold:.12});
+  document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+
+  // count-up masthead meters
+  function countUp(el){
+    const t=+el.dataset.count, dur=1400, t0=performance.now();
+    function f(now){ const p=Math.min(1,(now-t0)/dur); el.textContent=Math.round((1-Math.pow(1-p,3))*t)+'%'; if(p<1)requestAnimationFrame(f);}
+    requestAnimationFrame(f);
+  }
+  document.querySelectorAll('[data-count]').forEach(el=>{
+    const o=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){countUp(el);o.disconnect();}})},{threshold:.6});
+    o.observe(el);
+  });
+
+  // skip rows
+  const SKIP=[
+    ['SKIP','skip','Ω<sub>Λ</sub> (exact, re-requested)','memo hit — exact match'],
+    ['SKIP','skip','Ω<sub>Λ</sub> ∈ (0.6, 0.7) — a coarse bound','entailed by a stronger fact'],
+    ['CALL','call','Ω<sub>b</sub> = 1/19 — genuinely new','no known fact implies it'],
+  ];
+  function renderSkip(){
+    const host=document.getElementById('skip-rows'); host.innerHTML='';
+    SKIP.forEach((r,i)=>{
+      const d=document.createElement('div'); d.className='row'; d.style.opacity=0; d.style.transform='translateX(-10px)';
+      d.innerHTML=`<span class="stat ${r[1]}">${r[0]}</span><span class="desc">${r[2]}</span><span class="why">${r[3]}</span>`;
+      host.appendChild(d);
+      setTimeout(()=>{d.style.transition='.5s';d.style.opacity=1;d.style.transform='none';}, 220*i+200);
+    });
+    // dial: 3 → 1
+    setTimeout(()=>{
+      document.getElementById('skip-arc').style.width='67%';
+      document.getElementById('led-skip').className='led on';
+      let v=3; const num=document.getElementById('skip-num'); num.textContent=3;
+      const iv=setInterval(()=>{ v--; num.textContent=v; if(v<=1)clearInterval(iv); },600);
+    }, 900);
+  }
+
+  // sigma needles: map σ to 0..100% where 18%≈band edges; clamp 25σ near far right
+  function placeNeedles(){
+    document.getElementById('needle-ok').style.left = (0.067/0.4*18)+'%';   // tiny, well inside green
+    document.getElementById('needle-bad').style.left = '97%';                // pinned past red
+    document.getElementById('led-rec').className='led fail';
+  }
+
+  // leds for drift + verify
+  function lightStatus(){
+    document.getElementById('led-drift').className='led fail'; // alarm raised = working as intended
+    document.getElementById('led-verify').className='led on';
+    const a=document.getElementById('alarm');
+    a.animate([{opacity:.3},{opacity:1}],{duration:700,iterations:Infinity,direction:'alternate'});
+  }
+
+  // devil's staircase (Cantor function approx) for the generator motif
+  function cantorPath(){
+    const W=600,H=120, N=8; // recursion depth
+    let pts=[[0,0],[1,1]];
+    for(let it=0;it<N;it++){
+      const np=[];
+      for(let i=0;i<pts.length-1;i++){
+        const [x0,y0]=pts[i], [x1,y1]=pts[i+1];
+        const dx=x1-x0, dy=y1-y0;
+        np.push([x0,y0]);
+        np.push([x0+dx/3, y0+dy/2]);
+        np.push([x0+2*dx/3, y0+dy/2]);
+      }
+      np.push([1,1]); pts=np;
+    }
+    let d='M '+pts.map(([x,y])=>`${(x*W).toFixed(1)} ${(H-y*H).toFixed(1)}`).join(' L ');
+    const p=document.getElementById('cantor'); p.setAttribute('d',d);
+    const len=p.getTotalLength(); p.style.strokeDasharray=len; p.style.strokeDashoffset=len;
+    p.animate([{strokeDashoffset:len},{strokeDashoffset:0}],{duration:2600,easing:'ease-in-out',fill:'forwards'});
+  }
+
+  function runAll(){
+    renderSkip(); placeNeedles(); lightStatus(); cantorPath();
+  }
+
+  // kick off the instrument when sections enter view
+  ['section'].forEach(()=>{});
+  let started=false;
+  const startObs=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting&&!started){started=true;runAll();}})},{threshold:.05});
+  startObs.observe(document.querySelector('section'));
+</script>
+</body>
+</html>

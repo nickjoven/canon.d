@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>canon.d — deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,900;1,9..144,500&family=Newsreader:ital,opsz@0,6..72;1,6..72&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ground:#0c0d0f; --ground-2:#121417; --panel:#15181c;
+    --bone:#e9e4d8; --bone-dim:#a39d8e; --bone-faint:#6a6557;
+    --amber:#f0a830; --teal:#5ad1c2; --red:#e5484d; --green:#6cc070;
+    --hair:rgba(233,228,216,.10); --hair-bright:rgba(233,228,216,.22);
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --body:'Newsreader',Georgia,serif; --disp:'Fraunces',Georgia,serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--ground); color:var(--bone); font-family:var(--body);
+    overflow:hidden; -webkit-font-smoothing:antialiased;
+  }
+  body::before{
+    content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.45;
+    background-image:linear-gradient(var(--hair) 1px,transparent 1px),linear-gradient(90deg,var(--hair) 1px,transparent 1px);
+    background-size:72px 72px;
+    mask-image:radial-gradient(ellipse 110% 100% at 50% 50%,#000 35%,transparent 85%);
+  }
+  body::after{
+    content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.04;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .stage{position:relative; z-index:1; height:100%; display:flex; align-items:center; justify-content:center}
+  .slide{
+    display:none; width:min(960px,90vw); padding:0 20px;
+    animation:rise .6s cubic-bezier(.2,.8,.2,1);
+  }
+  .slide.active{display:block}
+  @keyframes rise{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
+
+  .kicker{font-family:var(--mono); font-size:13px; letter-spacing:.3em; text-transform:uppercase; color:var(--amber); margin-bottom:26px; display:flex; gap:14px; align-items:center}
+  .kicker::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(240,168,48,.3),transparent)}
+  h1{font-family:var(--disp); font-weight:900; font-size:clamp(44px,8vw,92px); line-height:.94; letter-spacing:-.03em}
+  h1 .dot{color:var(--amber)}
+  h2{font-family:var(--disp); font-weight:600; font-size:clamp(30px,5vw,56px); line-height:1.02; letter-spacing:-.02em; margin-bottom:22px}
+  h2 em{font-style:italic; color:var(--amber)}
+  .lede{font-size:clamp(20px,2.6vw,28px); color:var(--bone-dim); max-width:34ch; line-height:1.4; margin-top:24px}
+  .lede b{color:var(--bone); font-weight:600}
+  p.big{font-size:clamp(19px,2.3vw,24px); color:var(--bone-dim); max-width:50ch; line-height:1.5}
+  p.big b{color:var(--bone); font-weight:600} p.big em{color:var(--teal); font-style:italic}
+  .cite{margin-top:18px; border-left:2px solid var(--red); padding:6px 0 6px 16px; max-width:52ch}
+  .cite .q{font-style:italic; color:var(--bone-dim); font-size:clamp(15px,1.8vw,18px); line-height:1.4}
+  .cite .src{font-family:var(--mono); font-size:12px; color:var(--bone-faint); margin-top:7px; letter-spacing:.04em}
+  .cite .src a{color:var(--teal); text-decoration:none}
+  .kicker .fail{color:var(--red)}
+
+  .stat-grid{display:flex; gap:0; margin-top:40px; border:1px solid var(--hair-bright)}
+  .stat-grid .c{flex:1; padding:24px 26px; border-right:1px solid var(--hair); background:var(--ground-2)}
+  .stat-grid .c:last-child{border-right:0}
+  .stat-grid .n{font-family:var(--mono); font-size:clamp(28px,4vw,44px); font-weight:600; letter-spacing:-.02em; color:var(--amber)}
+  .stat-grid .n.red{color:var(--red)} .stat-grid .n.green{color:var(--green)} .stat-grid .n.teal{color:var(--teal)}
+  .stat-grid .l{font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--bone-faint); margin-top:10px}
+
+  .term{
+    margin-top:36px; font-family:var(--mono); font-size:clamp(13px,1.6vw,16px); line-height:1.95;
+    background:linear-gradient(180deg,var(--panel),var(--ground-2)); border:1px solid var(--hair-bright);
+    border-radius:6px; overflow:hidden; box-shadow:0 30px 70px -40px rgba(0,0,0,.9);
+  }
+  .term .bar{padding:13px 20px; border-bottom:1px solid var(--hair); background:rgba(0,0,0,.25); color:var(--bone-faint); letter-spacing:.12em; font-size:12px; text-transform:uppercase; display:flex; gap:12px; align-items:center}
+  .term .bar .d{width:9px;height:9px;border-radius:50%}
+  .term .body{padding:22px 24px}
+  .term .ln{display:flex; gap:14px; padding:5px 0; border-bottom:1px dashed var(--hair)}
+  .term .ln:last-child{border-bottom:0}
+  .term .v{flex:none; width:74px; font-weight:600}
+  .v.skip{color:var(--bone-faint)} .v.call{color:var(--amber)} .v.ok{color:var(--green)} .v.bad{color:var(--red)}
+  .term .t{flex:1; color:var(--bone)} .term .t .cid{color:var(--teal)} .term .t i{color:var(--bone-faint)}
+
+  .pull{font-family:var(--disp); font-style:italic; font-weight:500; font-size:clamp(26px,4.4vw,46px); line-height:1.18; color:var(--bone); max-width:22ch}
+  .pull b{font-style:normal; font-weight:900; color:var(--amber)}
+  .two{display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--hair-bright); border:1px solid var(--hair-bright); margin-top:36px}
+  .two>div{background:var(--ground-2); padding:28px}
+  .two .q{font-family:var(--disp); font-style:italic; font-size:clamp(20px,2.4vw,26px); margin-bottom:12px}
+  .two .a{color:var(--bone-dim); font-size:17px; line-height:1.5}
+  .two .a b{color:var(--bone)}
+
+  /* chrome */
+  .chrome{position:fixed; z-index:5; bottom:26px; left:0; right:0; display:flex; align-items:center; justify-content:space-between; padding:0 34px; font-family:var(--mono); font-size:12px; letter-spacing:.1em; color:var(--bone-faint)}
+  .progress{position:fixed; top:0; left:0; height:2px; background:var(--amber); transition:width .4s; z-index:6; box-shadow:0 0 10px var(--amber)}
+  .dots{display:flex; gap:9px}
+  .dots b{width:7px;height:7px;border-radius:50%;background:var(--hair-bright);transition:.3s;cursor:pointer}
+  .dots b.on{background:var(--amber);box-shadow:0 0 9px var(--amber)}
+  .hint{color:var(--bone-faint)} .hint kbd{font-family:var(--mono); background:var(--ground-2); border:1px solid var(--hair); border-radius:3px; padding:1px 6px; color:var(--bone-dim)}
+  .brand{color:var(--bone-dim)} .brand b{color:var(--amber)}
+  .needle-wrap{margin-top:8px; position:relative; height:44px}
+  .needle-wrap .axis{position:absolute;left:0;right:0;top:22px;height:1px;background:var(--hair-bright)}
+  .needle-wrap .band{position:absolute;top:18px;height:8px;border-radius:2px;opacity:.28}
+  .bg{background:var(--green);left:0;width:18%}.ba{background:var(--amber);left:18%;width:32%}.br{background:var(--red);left:50%;right:0}
+  .nd{position:absolute;top:8px;width:2px;height:30px;background:var(--bone)}
+  .nd::after{content:"";position:absolute;top:-4px;left:-3px;width:8px;height:8px;border-radius:50%;background:inherit}
+  .nd.ok{background:var(--green)} .nd.bad{background:var(--red)}
+  @media(max-width:680px){.stat-grid{flex-wrap:wrap}.stat-grid .c{flex:1 1 50%}.two{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<div class="stage">
+
+  <!-- 1 — title -->
+  <section class="slide active">
+    <div class="kicker">canon.d · content-addressed epistemic substrate</div>
+    <h1>Verify what you<br>didn't <span class="dot">compute.</span></h1>
+    <p class="lede">A fact carries its own proof. Identity binds it to a hash; a witness checks it independently; the projection travels — so <b>anyone re-derives your knowledge from bytes, with no trust in you</b>.</p>
+  </section>
+
+  <!-- 2 — problem -->
+  <section class="slide">
+    <div class="kicker">the baseline · arXiv:2602.06176</div>
+    <h2>Three failures the field just <em>catalogued</em>.</h2>
+    <p class="big">A 2026 survey — Song, Han &amp; Goodman, <i>“Large Language Model Reasoning Failures”</i> — names them: <b>two-hop reasoning</b> (§4.1), <b>framing-effect robustness</b> (§3.1/§4.2), <b>self-assessment</b> (§4.3). It calls the first <em>intrinsic to the architecture</em>. You don't prompt these away.</p>
+    <div class="cite">
+      <div class="q">“significant reasoning failures persist, occurring even in seemingly simple scenarios.”</div>
+      <div class="src">— Song, Han &amp; Goodman 2026 · <a href="https://arxiv.org/abs/2602.06176">arXiv:2602.06176</a></div>
+    </div>
+  </section>
+
+  <!-- 3 — skip -->
+  <section class="slide">
+    <div class="kicker">demo 01 · <span class="fail">two-hop reasoning failure (§4.1)</span></div>
+    <h2>The substrate does the step the model <em>can't</em>.</h2>
+    <div class="cite" style="margin-bottom:26px">
+      <div class="q">“systematic failures in basic two-hop reasoning — combining only two facts.”</div>
+      <div class="src">— §4.1 · recognizing a held fact <i>entails</i> the next one is that step</div>
+    </div>
+    <div class="term">
+      <div class="bar"><span class="d" style="background:var(--green)"></span> dedup_gate · 3 candidates · 1 known fact</div>
+      <div class="body">
+        <div class="ln"><span class="v skip">SKIP</span><span class="t">Ω<sub>Λ</sub> (exact, re-requested) &nbsp;<i>— memo hit</i></span></div>
+        <div class="ln"><span class="v skip">SKIP</span><span class="t">Ω<sub>Λ</sub> ∈ (0.6, 0.7) &nbsp;<i>— entailed by 13/19, proven by interval containment</i></span></div>
+        <div class="ln"><span class="v call">CALL</span><span class="t">Ω<sub>b</sub> = 1/19 &nbsp;<i>— genuinely new</i></span></div>
+      </div>
+    </div>
+    <div class="stat-grid">
+      <div class="c"><div class="n">3 → 1</div><div class="l">remote calls</div></div>
+      <div class="c"><div class="n green">67%</div><div class="l">avoided, provably</div></div>
+      <div class="c"><div class="n teal">exact</div><div class="l">containment, not similarity</div></div>
+    </div>
+  </section>
+
+  <!-- 4 — drift -->
+  <section class="slide">
+    <div class="kicker">demo 02 · <span class="fail">framing-effect robustness (§3.1/§4.2)</span></div>
+    <h2>Equivalent-but-rephrased <em>can't</em> diverge here.</h2>
+    <div class="cite" style="margin-bottom:26px">
+      <div class="q">“logically equivalent but differently phrased prompts can lead to different results.”</div>
+      <div class="src">— §3.1 · 26/38 and 13/19 are equal — one address, by construction</div>
+    </div>
+    <div class="term">
+      <div class="bar"><span class="d" style="background:var(--red)"></span> cross_audit · witness: form vs. value</div>
+      <div class="body">
+        <div class="ln"><span class="v ok">MERGE</span><span class="t">A &amp; B → <span class="cid">febf3ea4dac3d328</span> &nbsp;<i>same address ⇒ one node, 0 conflicts</i></span></div>
+        <div class="ln"><span class="v ok">13/19</span><span class="t"><span class="cid">febf3ea4dac3d328</span></span></div>
+        <div class="ln"><span class="v bad">26/38</span><span class="t"><span class="cid">f662ed102d5895c9</span> &nbsp;<i>unreduced — looks brand-new</i></span></div>
+        <div class="ln"><span class="v bad">⚠</span><span class="t"><b style="color:var(--red)">UnderMerge</b> — one value, two forms. The drift is <b>caught</b>.</span></div>
+      </div>
+    </div>
+    <p class="big" style="margin-top:30px">Similarity says <b>26/38 ≈ 13/19</b> — "fine." Only an exact value-witness, independent of the byte-form, catches a canonicalizer that quietly forgot to reduce.</p>
+  </section>
+
+  <!-- 5 — verify -->
+  <section class="slide">
+    <div class="kicker">demo 03 · <span class="fail">self-assessment failure (§4.3)</span></div>
+    <h2>The check the model couldn't make, <em>externalized</em>.</h2>
+    <div class="cite" style="margin-bottom:26px">
+      <div class="q">“LLMs struggle even in assessing reasoning process … an arguably easier task than generation.”</div>
+      <div class="src">— §4.3 · so the substrate assesses it: portable, tamper-evident, reputation-free</div>
+    </div>
+    <div class="term">
+      <div class="bar"><span class="d" style="background:var(--green)"></span> import + consensus_root · 1709 B · root cce1285643c67bab</div>
+      <div class="body">
+        <div class="ln"><span class="v ok">OK</span><span class="t">re-verified every quantum · replayed the transparency log</span></div>
+        <div class="ln"><span class="v ok">OK</span><span class="t">agree on the whole state by <b>one hash</b> &nbsp;<i>true</i></span></div>
+        <div class="ln"><span class="v ok">OK</span><span class="t">Ω<sub>Λ</sub> certain in B — <i>B computed nothing</i> &nbsp;true</span></div>
+        <div class="ln"><span class="v bad">REJECT</span><span class="t">flip one field → import <b style="color:var(--red)">refused</b></span></div>
+      </div>
+    </div>
+    <p class="big" style="margin-top:26px">Whether Party A is famous or obscure, the bundle <b>verifies the same</b>. Correctness is checked — not vouched for.</p>
+  </section>
+
+  <!-- 6 — empirical -->
+  <section class="slide">
+    <div class="kicker">demo 03 · held against reality</div>
+    <h2>A correct projection <em>passes</em>. A lie is <em>blocked</em>.</h2>
+    <div class="stat-grid" style="margin-top:14px">
+      <div class="c">
+        <div class="n green">0.067σ</div><div class="l">13/19 vs Planck 0.6847±0.0073 · PASS</div>
+        <div class="needle-wrap"><div class="band bg"></div><div class="band ba"></div><div class="band br"></div><div class="axis"></div><div class="nd ok" style="left:3%"></div></div>
+      </div>
+      <div class="c">
+        <div class="n red">25.3σ</div><div class="l">1/2 vs Planck · FALSIFIED · exit 1</div>
+        <div class="needle-wrap"><div class="band bg"></div><div class="band ba"></div><div class="band br"></div><div class="axis"></div><div class="nd bad" style="left:97%"></div></div>
+      </div>
+    </div>
+    <p class="big" style="margin-top:30px">Same instrument either way — the σ residual is the harmonics lab's own 0.07σ test, turned into a <b>CI gate</b>. A plausible-looking wrong value never reaches the corpus.</p>
+  </section>
+
+  <!-- 7 — the rule -->
+  <section class="slide">
+    <div class="kicker">the rule</div>
+    <h2>Two questions decide everything.</h2>
+    <div class="two">
+      <div><div class="q">Does its identity bind the bytes?</div><div class="a">Hash the canonical form, and equal facts are <b>one</b> fact. Drift is a type error, not a silent duplicate.</div></div>
+      <div><div class="q">Can a stranger re-derive it?</div><div class="a">Ship the generator + witness, and correctness is <b>checked, not trusted</b>. Reputation drops out.</div></div>
+    </div>
+  </section>
+
+  <!-- 8 — close -->
+  <section class="slide">
+    <div class="kicker">canon.d</div>
+    <div class="pull">A fact that can't prove itself <b>isn't</b> knowledge — it's a rumor with a hash.</div>
+    <p class="big" style="margin-top:36px">One library. Three documented failures, neutralized at the substrate. <b>cargo run --bin canon-demo -- all --json</b> emits every number on these slides — nothing here is mocked. <em>harmonics lab → reviewed consensus → forward projection.</em></p>
+    <div class="cite" style="margin-top:30px; border-color:var(--bone-faint)">
+      <div class="src" style="margin-top:0">Baseline: P. Song, P. Han &amp; N. Goodman, <i>“Large Language Model Reasoning Failures,”</i> <a href="https://arxiv.org/abs/2602.06176">arXiv:2602.06176</a> (2026).</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="chrome">
+  <span class="brand"><b>canon.d</b> · quantum-tier</span>
+  <div class="dots" id="dots"></div>
+  <span class="hint"><kbd>←</kbd> <kbd>→</kbd> navigate · <kbd>F</kbd> fullscreen</span>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const dotsHost=document.getElementById('dots');
+  const prog=document.getElementById('prog');
+  let i=0;
+  slides.forEach((_,n)=>{const b=document.createElement('b'); b.onclick=()=>go(n); dotsHost.appendChild(b);});
+  const dots=[...dotsHost.children];
+  function go(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    dots.forEach((d,k)=>d.classList.toggle('on',k===i));
+    prog.style.width=((i+1)/slides.length*100)+'%';
+  }
+  function next(){go(i+1)} function prev(){go(i-1)}
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();next();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev();}
+    else if(e.key==='Home')go(0); else if(e.key==='End')go(slides.length-1);
+    else if(e.key.toLowerCase()==='f'){ if(!document.fullscreenElement)document.documentElement.requestFullscreen(); else document.exitFullscreen(); }
+  });
+  // swipe
+  let x0=null;
+  addEventListener('touchstart',e=>x0=e.touches[0].clientX);
+  addEventListener('touchend',e=>{ if(x0==null)return; const dx=e.changedTouches[0].clientX-x0; if(Math.abs(dx)>50){dx<0?next():prev();} x0=null;});
+  go(0);
+</script>
+</body>
+</html>
