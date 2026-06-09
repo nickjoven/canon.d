@@ -11,8 +11,9 @@ use std::process::exit;
 
 use canon_d::{
     attestation_schema, consensus_root, cross_audit, dedup_gate, export, gate::Candidate, import,
-    project, proposition_schema, reconcile_gate, Bundle, BundleEntry, Claim, CrossAuditConflict,
-    Disposition, Memo, Quantum, Rat, RatInterval, Rule, SchemaKind, Tolerance, TransparencyLog,
+    project, proposition_schema, reconcile_gate, seal_constitution, Bundle, BundleEntry, Claim,
+    CrossAuditConflict, Disposition, Memo, Quantum, Rat, RatInterval, Rule, SchemaKind, Tolerance,
+    TransparencyLog,
 };
 use serde_json::{json, Value};
 
@@ -213,6 +214,84 @@ fn demo_verify() -> Value {
 }
 
 // ---------------------------------------------------------------------------
+// constitution — the substrate seals its own laws (self-hosting tier).
+// ---------------------------------------------------------------------------
+fn demo_constitution() -> Value {
+    let c = seal_constitution();
+    let self_hosts = c.self_hosts();
+
+    let articles: Vec<Value> = c
+        .articles
+        .iter()
+        .map(|a| {
+            json!({
+                "law": a.name,
+                "schema_cid": short(&a.schema_cid),
+                "quantum_cid": short(&a.quantum.cid),
+            })
+        })
+        .collect();
+
+    // Ship the law and re-derive its root, having sealed nothing: the treaty.
+    let bundle = c.bundle();
+    let wire = serde_json::to_string(&bundle).unwrap();
+    let received: Bundle = serde_json::from_str(&wire).unwrap();
+    let imported = import(&received)
+        .map(|l| consensus_root(&l.closure) == c.root)
+        .unwrap_or(false);
+
+    let ok = self_hosts && imported;
+    json!({
+        "demo": "constitution",
+        "title": "The substrate seals its own laws",
+        "failure": "Ungrounded self-description — a system that can't state, under its own rules, the rules it computed under",
+        "self_hosts": self_hosts,
+        "keystone_cid": short(&c.meta.cid),
+        "constitution_root": short(&c.root),
+        "laws": c.articles.len(),
+        "articles": articles,
+        "treaty": {
+            "wire_version": c.treaty.wire_version,
+            "body_digest_algo": c.treaty.body_digest_algo,
+            "canon_rule_cid": short(&c.treaty.canon_rule_cid),
+        },
+        "bundle_bytes": wire.len(),
+        "portable_root_reproduced": imported,
+        "exit": if ok { 0 } else { 1 },
+    })
+}
+
+fn print_constitution(v: &Value) {
+    println!("\x1b[1mThe substrate seals its own laws\x1b[0m — self-hosting tier\n");
+    println!(
+        "Keystone (meta-schema, sealed under itself): {}",
+        v["keystone_cid"].as_str().unwrap()
+    );
+    println!(
+        "  self-hosts (fixpoint · articles reverify · rebuild-bit-identical)? {}",
+        v["self_hosts"]
+    );
+    println!("\nLaws sealed as quanta under the meta-schema: {}", v["laws"]);
+    for a in v["articles"].as_array().unwrap() {
+        println!(
+            "  {:<16} schema {}  →  quantum {}",
+            a["law"].as_str().unwrap(),
+            a["schema_cid"].as_str().unwrap(),
+            a["quantum_cid"].as_str().unwrap()
+        );
+    }
+    let t = &v["treaty"];
+    println!("\nTreaty (the inter-substrate contract):");
+    println!("  wire v{}, body digest {}", t["wire_version"], t["body_digest_algo"].as_str().unwrap());
+    println!("  canonicalizer fingerprint: {}", t["canon_rule_cid"].as_str().unwrap());
+    println!("\nConstitution root: {}", v["constitution_root"].as_str().unwrap());
+    println!(
+        "  shipped a {}-byte bundle; a peer re-derived the root sealing nothing? {}",
+        v["bundle_bytes"], v["portable_root_reproduced"]
+    );
+}
+
+// ---------------------------------------------------------------------------
 // human-readable rendering
 // ---------------------------------------------------------------------------
 // lead every demo with the documented LLM failure it neutralizes.
@@ -278,9 +357,10 @@ fn main() {
         "skip" => vec![demo_skip()],
         "drift" => vec![demo_drift()],
         "verify" => vec![demo_verify()],
+        "constitution" | "const" => vec![demo_constitution()],
         "all" => vec![demo_skip(), demo_drift(), demo_verify()],
         other => {
-            eprintln!("unknown demo '{other}' — expected skip|drift|verify|all");
+            eprintln!("unknown demo '{other}' — expected skip|drift|verify|constitution|all");
             exit(2);
         }
     };
@@ -299,6 +379,7 @@ fn main() {
                 "skip" => print_skip(d),
                 "drift" => print_drift(d),
                 "verify" => print_verify(d),
+                "constitution" => print_constitution(d),
                 _ => {}
             }
         }

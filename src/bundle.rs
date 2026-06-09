@@ -36,6 +36,8 @@ pub enum SchemaKind {
     Generator,
     Proposition,
     Assertion,
+    /// A law sealed as a quantum under the meta-schema (the self-hosting tier).
+    Schema,
 }
 
 fn schema_for(k: SchemaKind) -> Schema {
@@ -44,6 +46,7 @@ fn schema_for(k: SchemaKind) -> Schema {
         SchemaKind::Generator => generator_schema(),
         SchemaKind::Proposition => proposition_schema(),
         SchemaKind::Assertion => assertion_schema(),
+        SchemaKind::Schema => crate::constitution::schema_schema(),
     }
 }
 

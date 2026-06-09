@@ -22,6 +22,7 @@ pub mod bundle;
 mod canon;
 pub mod chain;
 pub mod closure;
+pub mod constitution;
 pub mod cost;
 pub mod crypto;
 pub mod lineage;
@@ -48,6 +49,9 @@ pub use canon::{Canon, CanonError};
 pub use bundle::{export, import, Bundle, BundleEntry, BundleError, Loaded, Rule, SchemaKind};
 pub use chain::{audit_anchor, consensus_root, verify_regeneration, AnchorAudit};
 pub use closure::Closure;
+pub use constitution::{
+    builtin_laws, schema_schema, seal_constitution, seal_schema, Article, Constitution, Treaty,
+};
 pub use cost::{cost_report, Budget, CostReport};
 // note: `gate::Candidate` is *not* re-exported at the root (name clashes with
 // `alignment::Candidate`); reach it via `canon_d::gate::Candidate`.
