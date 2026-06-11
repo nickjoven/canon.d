@@ -89,6 +89,15 @@ pub struct Schema {
     pub fields: Vec<Field>,
 }
 
+/// Does this kind contain a float anywhere (directly or inside List/Set)?
+fn contains_float(kind: &FieldKind) -> bool {
+    match kind {
+        FieldKind::Float => true,
+        FieldKind::List(inner) | FieldKind::Set(inner) => contains_float(inner),
+        _ => false,
+    }
+}
+
 impl Schema {
     /// Create a new schema with no fields.
     pub fn new(name: &str, version: u32) -> Self {
@@ -100,7 +109,19 @@ impl Schema {
     }
 
     /// Add a required, identity-bearing field. (Role: **Identity**.)
+    ///
+    /// **No floats in identity** (`RELEASE.md` environment guarantee #3): `f64`
+    /// canonical formatting is the one serde_json behavior not pinned across
+    /// versions, so a float may *witness* a value but never bind an address.
+    /// Violations panic here — at schema construction, where every law is
+    /// exercised by tests — rather than surfacing as silent address drift later.
     pub fn identity(mut self, name: &str, kind: FieldKind) -> Self {
+        assert!(
+            !contains_float(&kind),
+            "schema `{}`: identity field `{name}` contains Float — floats may \
+             witness but never bind addresses (RELEASE.md guarantee #3)",
+            self.name
+        );
         self.fields.push(Field {
             name: name.to_string(),
             kind,
@@ -191,6 +212,28 @@ mod tests {
             .optional("confidence", FieldKind::Float);
 
         assert_eq!(s1.to_canonical_bytes(), s2.to_canonical_bytes());
+    }
+
+    #[test]
+    #[should_panic(expected = "contains Float")]
+    fn identity_rejects_float() {
+        let _ = Schema::new("bad", 1).identity("value", FieldKind::Float);
+    }
+
+    #[test]
+    #[should_panic(expected = "contains Float")]
+    fn identity_rejects_nested_float() {
+        let _ = Schema::new("bad", 1).identity("values", FieldKind::List(Box::new(FieldKind::Float)));
+    }
+
+    #[test]
+    fn float_is_fine_outside_identity() {
+        // Floats may witness or project — only addresses are off-limits.
+        let s = Schema::new("ok", 1)
+            .identity("subject", FieldKind::String)
+            .witness("measured", FieldKind::Float)
+            .optional("confidence", FieldKind::Float);
+        assert_eq!(s.fields.len(), 3);
     }
 
     #[test]
