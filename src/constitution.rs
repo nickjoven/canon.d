@@ -41,11 +41,32 @@ use crate::quantum::schema_cid;
 /// (order is significant in a `Schema`, so `fields` is a `List`, not a `Set`).
 /// Each field is rendered to one canonical descriptor string by
 /// [`fieldkind_str`] + role flags, so the meta-schema needs no nested-object kind.
+///
+/// The **witness** is the law's census (`census`, via [`role_census`]): name,
+/// version, and field-role counts, taken off the live [`Schema`] struct — never
+/// parsed back out of the rendered descriptor strings. An independent route, so
+/// the audit catches a descriptor-rendering bug the way it catches an unreduced
+/// 26/38; and two laws sharing a name+version while differing in fields (a
+/// **forked law without a version bump**) collide in witness while differing in
+/// CID — an UnderMerge. With it, the constitution is audited by the same *two*
+/// routes a fact is.
 pub fn schema_schema() -> Schema {
-    Schema::new("schema", 1)
+    Schema::new("schema", 2)
         .identity("name", FieldKind::String)
         .identity("version", FieldKind::Integer)
         .identity("fields", FieldKind::List(Box::new(FieldKind::String)))
+        .witness("census", FieldKind::String)
+}
+
+/// The witness route: the law's census, counted directly off the [`Schema`]
+/// struct. Format `"{name}.v{version}:i{identity}w{witness}p{projection}"` —
+/// e.g. the meta-schema itself yields `"schema.v2:i3w1p0"`. Shares no code with
+/// [`schema_to_body`]'s descriptor rendering.
+pub fn role_census(s: &Schema) -> String {
+    let i = s.fields.iter().filter(|f| f.identity).count();
+    let w = s.fields.iter().filter(|f| f.witness).count();
+    let p = s.fields.iter().filter(|f| !f.identity && !f.witness).count();
+    format!("{}.v{}:i{i}w{w}p{p}", s.name, s.version)
 }
 
 /// Render a [`FieldKind`] to a stable canonical string (recursive for List/Set/Ref).
@@ -79,7 +100,7 @@ fn schema_to_body(s: &Schema) -> Value {
             json!(format!("{}:{}:{}", f.name, fieldkind_str(&f.kind), flags))
         })
         .collect();
-    json!({ "name": s.name, "version": s.version, "fields": fields })
+    json!({ "name": s.name, "version": s.version, "fields": fields, "census": role_census(s) })
 }
 
 /// Seal a schema *as a quantum* under the meta-schema — give a law a CID the same
@@ -167,13 +188,16 @@ impl Constitution {
         )
     }
 
-    /// Does the substrate genuinely host its own grammar? Three checks:
+    /// Does the substrate genuinely host its own grammar? Four checks:
     ///
     /// 1. **Fixpoint** — the keystone re-verifies under the meta-schema *and* its
     ///    body is exactly the meta-schema's own description. The law of laws is
     ///    addressed by its own description.
     /// 2. **Articles** — every sealed law re-verifies under the meta-schema.
-    /// 3. **Determinism** — re-sealing the whole constitution from scratch
+    /// 3. **Witness route** — every law's sealed census agrees with one recomputed
+    ///    off the live struct ([`role_census`]), so the constitution is audited by
+    ///    both routes a fact is, not by identity-address alone.
+    /// 4. **Determinism** — re-sealing the whole constitution from scratch
     ///    reproduces the same keystone CID and the same root (rebuild-bit-identical,
     ///    at the level of the laws themselves).
     pub fn self_hosts(&self) -> bool {
@@ -184,9 +208,18 @@ impl Constitution {
             .articles
             .iter()
             .all(|a| a.quantum.verify(&ms).unwrap_or(false));
+        let witnessed = self
+            .meta
+            .verify_witness(&ms, &json!({"census": role_census(&ms)}))
+            .unwrap_or(false)
+            && builtin_laws().iter().all(|(_, s)| {
+                seal_schema(s)
+                    .verify_witness(&ms, &json!({"census": role_census(s)}))
+                    .unwrap_or(false)
+            });
         let rebuilt = seal_constitution();
         let deterministic = rebuilt.root == self.root && rebuilt.meta.cid == self.meta.cid;
-        fixpoint && articles_ok && deterministic
+        fixpoint && articles_ok && witnessed && deterministic
     }
 }
 
@@ -275,6 +308,45 @@ mod tests {
         let loaded = import(&received).expect("constitution bundle verifies");
         assert_eq!(consensus_root(&loaded.closure), c.root);
         assert_eq!(c.bundle().consensus_root, c.root);
+    }
+
+    #[test]
+    fn constitution_cross_audits_clean() {
+        // All laws + keystone through the same dual-witness audit a fact corpus
+        // gets: no UnderMerge, no WitnessDisagreement.
+        let c = seal_constitution();
+        let mut quanta: Vec<Quantum> = c.articles.iter().map(|a| a.quantum.clone()).collect();
+        quanta.push(c.meta.clone());
+        let conflicts = crate::cross_audit(&schema_schema(), &quanta).unwrap();
+        assert!(conflicts.is_empty(), "constitution must cross-audit clean: {conflicts:?}");
+    }
+
+    #[test]
+    fn forked_law_without_version_bump_is_caught() {
+        // Same name, same version, one field renamed: same census witness,
+        // different CID — the UnderMerge that flags an unversioned fork of a law.
+        let original = crate::proposition_schema();
+        let mut forked = crate::proposition_schema();
+        forked.fields[0].name = "subjekt".into();
+        let a = seal_schema(&original);
+        let b = seal_schema(&forked);
+        assert_ne!(a.cid, b.cid);
+        let conflicts = crate::cross_audit(&schema_schema(), &[a, b]).unwrap();
+        assert!(
+            conflicts.iter().any(|c| matches!(c, crate::CrossAuditConflict::UnderMerge { .. })),
+            "an unversioned law fork must surface as UnderMerge: {conflicts:?}"
+        );
+    }
+
+    #[test]
+    fn forged_census_fails_witness_verify() {
+        let q = seal_schema(&crate::proposition_schema());
+        assert!(q
+            .verify_witness(&schema_schema(), &json!({"census": role_census(&crate::proposition_schema())}))
+            .unwrap());
+        assert!(!q
+            .verify_witness(&schema_schema(), &json!({"census": "proposition.v1:i9w9p9"}))
+            .unwrap());
     }
 
     #[test]

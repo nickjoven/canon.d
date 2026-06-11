@@ -268,7 +268,7 @@ fn print_constitution(v: &Value) {
         v["keystone_cid"].as_str().unwrap()
     );
     println!(
-        "  self-hosts (fixpoint · articles reverify · rebuild-bit-identical)? {}",
+        "  self-hosts (fixpoint · articles reverify · witness route · rebuild-bit-identical)? {}",
         v["self_hosts"]
     );
     println!("\nLaws sealed as quanta under the meta-schema: {}", v["laws"]);

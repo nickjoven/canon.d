@@ -27,14 +27,17 @@ const GOLDEN_OMEGA_CID: &str =
 
 /// V3 — the meta tier: the keystone (meta-schema sealed under itself).
 /// Pins: the self-hosting fixpoint and the treaty's canonicalizer fingerprint.
+/// History: `f9899f…f8fc` (schema.v1, identity-only) → current (schema.v2 adds
+/// the census witness — the constitution gains the dual-route audit facts have).
 const GOLDEN_KEYSTONE_CID: &str =
-    "f9899f6c43c6971adf0f9c2242da26ecf49b7e5443c93b09b5f9905c2502f8fc";
+    "223a939a7c4410aa2feae800b11b5369e8a99c1caab531bbf5e94a45bed6dc1c";
 
 /// V4 — the consensus construction: the constitution root.
 /// Pins: closure settle semantics + consensus_root's domain-separated,
 /// length-prefixed Merkle fold, over all nine laws at once.
+/// History: `c8ccc5…5211` (under schema.v1) → current (under schema.v2).
 const GOLDEN_CONSTITUTION_ROOT: &str =
-    "c8ccc5efa0d4adfbb8726071649ca388507613a81ea811e4b49f4511f6d35211";
+    "d48290d6b66938a82d12209eccada7143f18d807be0c1cf709b07d5c1088a460";
 
 fn omega() -> Quantum {
     Quantum::seal(
