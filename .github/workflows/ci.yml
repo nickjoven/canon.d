@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+    branches: [main, quantum-tier]
+  pull_request:
+  schedule:
+    - cron: "0 7 * * *"   # nightly: re-derive the constitution root, fail on drift
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and test (lib, integration, examples)
+        run: |
+          cargo build --release
+          cargo test
+      - name: Lint (informational, non-blocking)
+        continue-on-error: true
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+
+  heartbeat:
+    # The release contract: the constitution must self-host and the four golden
+    # vectors must reproduce. A moved vector is a law change, not a test failure
+    # to paper over (RELEASE.md). On the nightly schedule this catches drift even
+    # when nothing was committed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Constitution self-host
+        run: |
+          cargo run -q --bin canon-demo -- constitution --json \
+            | python3 -m json.tool \
+            | grep -E '"constitution_root"|"keystone_cid"|"self_hosts"|"exit"'
+      - name: Golden vectors (the binding drift gate)
+        run: cargo test --test golden

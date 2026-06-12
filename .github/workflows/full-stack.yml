@@ -1,0 +1,68 @@
+name: full-stack
+
+# Builds the whole stack end to end: the urtext content layer (lib + wasm demo)
+# and the canon.d substrate (tests + golden vectors + constitution self-host),
+# then bundles a single "machine" artifact.
+#
+# Cross-repo checkout of the private urtext repo needs a token. To enable:
+#   1. Settings > Secrets and variables > Actions:
+#        secret  STACK_TOKEN    = a PAT with read access to nickjoven/urtext
+#        variable STACK_ENABLED = true
+# Until the variable is set, the job is skipped (secrets cannot be referenced in
+# an `if:`, so the gate is a variable; the token is used only in the checkout).
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 1"   # weekly
+
+permissions:
+  contents: read
+
+jobs:
+  build-machine:
+    if: ${{ vars.STACK_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout canon.d
+        uses: actions/checkout@v4
+        with:
+          path: canon.d
+
+      - name: Checkout urtext
+        uses: actions/checkout@v4
+        with:
+          repository: nickjoven/urtext
+          token: ${{ secrets.STACK_TOKEN }}
+          path: urtext
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: urtext — content layer (test + wasm demo)
+        working-directory: urtext
+        run: |
+          cargo test
+          cd web
+          cargo build --release --target wasm32-unknown-unknown
+          python3 build.py
+
+      - name: canon.d — substrate (test + goldens + self-host)
+        working-directory: canon.d
+        run: |
+          cargo test
+          cargo run -q --bin canon-demo -- constitution --json \
+            | python3 -m json.tool | grep -E '"self_hosts"|"constitution_root"'
+
+      - name: Assemble the machine
+        run: |
+          mkdir -p machine
+          cp urtext/web/demo.html machine/demo.html
+          cp canon.d/RELEASE.md canon.d/INTAKE.md machine/ 2>/dev/null || true
+          cargo run --manifest-path canon.d/Cargo.toml -q --bin canon-demo -- constitution --json \
+            > machine/constitution.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: the-machine
+          path: machine
+          if-no-files-found: error
