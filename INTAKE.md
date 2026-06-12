@@ -138,11 +138,21 @@ structurer route among N. Fast, deterministic, free — where it agrees it adds
 corroboration; where it disagrees, `structurer_disagreement_rate` measures its
 error rate continuously instead of anyone guessing it.
 
-**Seal-root question (settle during shadow mode):** harmonics seals through
-ket's CAS/log (also BLAKE3); canon.d seals through its own store. The cutover
-anchors canon.d bundles into ket's CAS (or vice versa) rather than running two
-competing seal roots in one repo — ket-dag's typed edges map 1:1 onto
-`lineage.rs`, so this is an adapter, not a rewrite.
+**The graph is re-grounded, not adapted.** harmonics' derivation graph is
+*not* a Merkle DAG: 308 nodes, 221 with `cid: null`, and every edge is
+name-addressed (`{"target": "FRAMEWORK_TOPOLOGY", "kind": "references"}`) —
+edges never commit to their target's content, and the file is regenerated
+wholesale (its only version stamp is a git sha). There is no hash structure to
+translate. The port instead **re-grounds**: pin a corpus revision, seal every
+node, re-resolve each name edge to a CID→CID edge at that revision. The
+resolution step is fallible (renames, W4 typos, deletions) and runs through
+intake like everything else — failures become needs_review entries, not silent
+drops. Edge *kinds* must be assigned too: the live graph is dominated by the
+regex catch-all `references`, so promoting an edge to grounds/derives/proposes
+is a structurer judgment under the same N-route audit. ket's CAS still helps
+at the *byte* layer — the 87 already-sealed nodes arrive as prior utterance
+attestations to corroborate against — but the topology is built natively in
+canon.d; there is nothing upstream to anchor it to.
 
 ## Units of work
 
@@ -154,8 +164,11 @@ competing seal roots in one repo — ket-dag's typed edges map 1:1 onto
    workflow (sibling of `seal-constitution`) that fans out N structurer agents
    per utterance, auto-promotes agreement, queues disagreement with evidence.
    First corpus: harmonics' `sync_cost/derivations/*.md` (~220 files).
-3. **Lineage port**: `## Lineage` blocks + `derivation-graph.json` →
-   `lineage.rs` typed edges; closure import makes dangling targets loud.
+3. **Lineage re-grounding** *(not a port — see above)*: at a pinned corpus
+   revision, seal all nodes, resolve name edges → CID→CID `lineage.rs` edges,
+   assign kinds (most are the regex catch-all `references` today); unresolvable
+   names and kind judgments land in needs_review; closure import makes
+   dangling targets loud.
 4. **Reconcile scorecard**: MANIFEST.yml rows → attestation/proposition pairs →
    `reconcile_gate`; the scorecard becomes generated output; Falsified CIDs
    feed the dedup-block.
