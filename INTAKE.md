@@ -32,8 +32,13 @@ one link in the chain with no CID, no witness, no falsifier.
  proposition + assertion   the claim itself, one CID per meaning   (strata)
 ```
 
-1. **Utterance stratum.** Every source document is sealed *verbatim* at entry —
-   the address of the quote, before any interpretation. This alone repairs
+1. **Utterance stratum.** Every source document is sealed at entry — in its
+   **urtext canonical form** (the `urtext` crate: content in → bytes out;
+   deterministic, idempotent, metadata structurally excluded), so the address
+   of the quote precedes any interpretation *and* survives reformatting. Two
+   copies of the same content — different wrap width, line endings, bullet
+   style — seal to one CID; raw bytes remain available beside it as a
+   projection when byte-exact provenance matters. This alone repairs
    harmonics W2: the prose corpus becomes content-addressed ground, and
    "utterances with no structuring yet" is a *coverage metric*, not a silent
    hole.
