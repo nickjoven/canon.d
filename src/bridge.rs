@@ -24,10 +24,24 @@
 //!    human vouches. [`ground_audit`] is the native form of gnosis's `ungrounded`
 //!    check: a claim whose grounds don't resolve is "about nothing."
 
+use crate::generator::{EvalError, Rat};
 use crate::quantum::{Quantum, QuantumError};
 use crate::schema::{FieldKind, Schema};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
+
+/// The canonical witness string for an exact rational `num/den`.
+///
+/// Reuses [`Rat`]'s reduced canonical form (`gcd=1`, `den>0`, rendered
+/// `"num/den"`). Byte-stable and exact for ANY rational in the i64 algebra,
+/// including values with no finite binary float (e.g. `1/3`). A witness field
+/// typed [`FieldKind::String`] carrying this is the F3-exact alternative to a
+/// [`FieldKind::Float`] witness, which only verifies for binary-representable
+/// values and is not pinned across serde_json versions. Returns `EvalError`
+/// (`DivByZero`/`Overflow`) when the inputs leave the `Rat` domain.
+pub fn rat_witness(num: i64, den: i64) -> Result<String, EvalError> {
+    Ok(Rat::new(num, den)?.reduced_string())
+}
 
 /// A natural-language source utterance — pure projection. Identity is the bytes
 /// `(text, lang)`, so byte-identical utterances dedup while paraphrases (which
@@ -156,7 +170,10 @@ mod tests {
             .identity("num", FieldKind::Integer)
             .identity("den", FieldKind::Integer)
             .identity("grounds", FieldKind::Set(Box::new(FieldKind::Cid)))
-            .witness("value", FieldKind::Float)
+            // Exact-rational witness: a reduced "num/den" string, not an f64.
+            // Verifies for ANY reduced rational; an f64 witness verifies only for
+            // binary-representable values and is unpinned across serde_json.
+            .witness("value", FieldKind::String)
             .optional("prose", FieldKind::String)
     }
 
@@ -170,7 +187,7 @@ mod tests {
         )
         .unwrap();
         let body = json!({"subject":"omega_lambda","num":13,"den":19,
-                          "grounds":[att.cid],"value":0.6842});
+                          "grounds":[att.cid],"value":rat_witness(13,19).unwrap()});
 
         let a = structure("the dark-energy fraction is thirteen nineteenths", "en", "claude", &cs, &body).unwrap();
         let b = structure("Omega_Lambda equals 13/19", "en", "claude", &cs, &body).unwrap();
@@ -187,8 +204,8 @@ mod tests {
     fn restructure_supersedes_disagreement_coexists() {
         let cs = claim_schema();
         let g = "0000"; // a stand-in grounding cid
-        let body1 = json!({"subject":"x","num":13,"den":19,"grounds":[g],"value":0.6842});
-        let body2 = json!({"subject":"x","num":13,"den":18,"grounds":[g],"value":0.7222});
+        let body1 = json!({"subject":"x","num":13,"den":19,"grounds":[g],"value":rat_witness(13,19).unwrap()});
+        let body2 = json!({"subject":"x","num":13,"den":18,"grounds":[g],"value":rat_witness(13,18).unwrap()});
 
         let s1 = structure("ratio claim", "en", "claude", &cs, &body1).unwrap();
         // Same emitter, same utterance, RE-structured to a different claim -> supersede.
@@ -203,6 +220,27 @@ mod tests {
         let s3 = structure("ratio claim", "en", "gpt", &cs, &body2).unwrap();
         let id3 = canon.identity_projection(&json!({"utterance":s3.utterance.cid,"annotator":"gpt","claim":s3.claim.cid})).unwrap();
         assert_ne!(id1, id3, "two emitters proposing meanings must COEXIST, not clobber");
+    }
+
+    #[test]
+    fn rat_witness_is_exact_for_non_binary_rationals() {
+        // 1/3 has no finite binary float; an f64 witness rounds it. The reduced
+        // "num/den" string is exact and reduces, so it verifies and re-reduces.
+        assert_eq!(rat_witness(1, 3).unwrap(), "1/3");
+        assert_eq!(rat_witness(2, 6).unwrap(), "1/3", "reduces to canonical form");
+
+        let cs = claim_schema();
+        let q = Quantum::seal(
+            &cs,
+            &json!({"subject":"x","num":1,"den":3,"grounds":["m"],"value":rat_witness(1,3).unwrap()}),
+        )
+        .unwrap();
+        // Independent recomputation of 1/3 agrees; a wrong value disagrees. An f64
+        // witness could not represent 1/3 to compare exactly at all.
+        assert!(q.verify_witness(&cs, &json!({"value": rat_witness(1, 3).unwrap()})).unwrap());
+        assert!(!q.verify_witness(&cs, &json!({"value": rat_witness(1, 2).unwrap()})).unwrap());
+        // out-of-domain inputs are typed errors, not panics
+        assert!(rat_witness(1, 0).is_err());
     }
 
     #[test]
@@ -234,8 +272,8 @@ mod tests {
             &json!({"instrument":"Planck","dataset":"2018","locator":"OL","value":0.6847,"vouched_by":"n"}),
         )
         .unwrap();
-        let grounded = Quantum::seal(&cs, &json!({"subject":"x","num":13,"den":19,"grounds":[att.cid],"value":0.6842})).unwrap();
-        let dangling = Quantum::seal(&cs, &json!({"subject":"y","num":1,"den":2,"grounds":["deadbeef"],"value":0.5})).unwrap();
+        let grounded = Quantum::seal(&cs, &json!({"subject":"x","num":13,"den":19,"grounds":[att.cid],"value":rat_witness(13,19).unwrap()})).unwrap();
+        let dangling = Quantum::seal(&cs, &json!({"subject":"y","num":1,"den":2,"grounds":["deadbeef"],"value":rat_witness(1,2).unwrap()})).unwrap();
 
         let mut known = BTreeSet::new();
         known.insert(att.cid.clone());
