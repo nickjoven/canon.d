@@ -114,11 +114,42 @@ the invariant; `cross_audit` then does what each `certify()` does — with
 provenance, portability, and the constitution behind it. The Mars-Climate-
 Orbiter catch (lbf ≠ N) arrives as a schema, not a library.
 
+## Integration strategy: build separately, then update the pin
+
+harmonics already pins one submodule — `ket` at its current HEAD (`3530ad5`,
+the commit that gave ket-dag the grounds/derives/proposes edge kinds) — and
+regenerates `docs/derivation-graph.json` via CI bot commits on every PR. The
+intake pipeline does **not** replace `build_derivation_graph.py` in-repo on
+day one; it lands in three steps:
+
+1. **Build in canon.d.** Units 1–2 below, plus a `--emit-graph-json` compat
+   output matching harmonics' current `derivation-graph.json` shape, so the
+   scorecard and docs surfaces never notice the engine swap.
+2. **Shadow mode.** harmonics CI runs *both* pipelines and publishes the diff
+   as an artifact — the W1 measurement (edges regex missed, edges it
+   hallucinated) quantified before anything is replaced.
+3. **Cutover = a submodule update.** canon.d is pinned alongside ket — at a
+   tagged release identified by its constitution root (`RELEASE.md`), never a
+   floating branch — and `regen-derivation-graph.yml` swaps the python script
+   for `canon-demo intake-corpus`.
+
+**The regex is demoted, not deleted**: `build_derivation_graph.py` becomes one
+structurer route among N. Fast, deterministic, free — where it agrees it adds
+corroboration; where it disagrees, `structurer_disagreement_rate` measures its
+error rate continuously instead of anyone guessing it.
+
+**Seal-root question (settle during shadow mode):** harmonics seals through
+ket's CAS/log (also BLAKE3); canon.d seals through its own store. The cutover
+anchors canon.d bundles into ket's CAS (or vice versa) rather than running two
+competing seal roots in one repo — ket-dag's typed edges map 1:1 onto
+`lineage.rs`, so this is an adapter, not a rewrite.
+
 ## Units of work
 
 1. **Intake spine** *(bridge.rs exists — extend + surface)*: `canon-demo intake
    <file.md>` — seal utterance, run one structurer, emit proposition +
-   assertion + needs_review list. Exit codes per the U5 contract.
+   assertion + needs_review list, `--emit-graph-json` compat output. Exit
+   codes per the U5 contract.
 2. **N-structurer cross-audit + `intake-corpus` workflow**: an invokable
    workflow (sibling of `seal-constitution`) that fans out N structurer agents
    per utterance, auto-promotes agreement, queues disagreement with evidence.
