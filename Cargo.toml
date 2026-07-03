@@ -14,9 +14,16 @@ ket-cas = { git = "https://github.com/nickjoven/ket.git", tag = "v0.2.0", option
 ket-dag = { git = "https://github.com/nickjoven/ket.git", tag = "v0.2.0", optional = true }
 ed25519-dalek = "2"
 
+# The utterance-stratum canonicalizer (INTAKE.md §1). Optional + path-pinned
+# during the "build separately, then update the pin" phase (INTAKE.md
+# "Integration strategy"): converts to `git = ".../urtext", tag = "v0.1.0"` at
+# cutover, once urtext cuts its first release. Enable with `--features prose`.
+urtext = { path = "../urtext", optional = true }
+
 [features]
 default = []
 ket = ["ket-cas", "ket-dag"]
+prose = ["dep:urtext"]
 
 [dev-dependencies]
 ket-cas = { git = "https://github.com/nickjoven/ket.git", tag = "v0.2.0" }

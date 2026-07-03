@@ -43,16 +43,70 @@ pub fn rat_witness(num: i64, den: i64) -> Result<String, EvalError> {
     Ok(Rat::new(num, den)?.reduced_string())
 }
 
-/// A natural-language source utterance — pure projection. Identity is the bytes
-/// `(text, lang)`, so byte-identical utterances dedup while paraphrases (which
-/// mean the same thing but read differently) deliberately do **not** — NL is not
-/// meaning-addressed.
+/// A natural-language source utterance. Identity is the **urtext-canonical**
+/// content of the text (INTAKE.md §1), not its raw bytes: two copies of the same
+/// content that differ only by *formatting* — wrap width, line endings, bullet
+/// style, trailing whitespace (urtext's N1–N9 noise classes) — collapse to one
+/// CID. The as-received bytes live in the non-identity `raw` field, so byte-exact
+/// provenance survives beside the canonical address without moving it (a
+/// quantum's CID binds identity fields only — see [`Quantum::seal`]).
+///
+/// Normalization collapses *formatting*, never *meaning*: two paraphrases
+/// (different words, same claim) canonicalize to different bytes and stay
+/// distinct utterances. Meaning-collapse is the *structuring* stratum's job
+/// ([`structuring_schema`]), never this one — NL is not meaning-addressed.
+///
+/// Schema v2: `text` now holds canonical (not raw) content, and `raw` is added
+/// as a projection. The change is a deliberate, versioned supersession of v1's
+/// byte-identity utterance, per DESIGN.md's recursive-closure discipline.
 pub fn utterance_schema() -> Schema {
-    Schema::new("utterance", 1)
+    Schema::new("utterance", 2)
         .identity("text", FieldKind::String)
         .identity("lang", FieldKind::String)
+        .optional("raw", FieldKind::String)
         .optional("author", FieldKind::String)
         .optional("at", FieldKind::String)
+}
+
+/// The utterance-stratum canonicalizer: raw text → the bytes that bind the
+/// utterance's identity.
+///
+/// With the **`prose`** feature (urtext wired in), this is `urtext::normalize`
+/// — the N1–N9 noise classes collapse, so formatting-equivalent utterances
+/// dedup. Without it, the canonicalizer is the *identity function*: utterances
+/// still dedup, but only on exact bytes (no formatting collapse). The
+/// degradation is loud by construction — a corpus canonicalized in one mode has
+/// visibly different utterance CIDs than the other, so you pin the mode you
+/// ingested under. At cutover (INTAKE.md step 3) `prose` becomes the default and
+/// the path dep converts to a tag pin.
+fn canonicalize_utterance(text: &str) -> String {
+    #[cfg(feature = "prose")]
+    {
+        urtext::normalize(text)
+    }
+    #[cfg(not(feature = "prose"))]
+    {
+        text.to_string()
+    }
+}
+
+/// Seal a natural-language utterance at the content-addressed utterance stratum.
+///
+/// The CID is `blake3(schema ‖ (canonical_text, lang))`, where `canonical_text`
+/// is [`canonicalize_utterance`] of `text`; the raw bytes are kept in the `raw`
+/// projection. Two reformattings of one content seal to one CID (with `prose`);
+/// a paraphrase does not. This is the entry ticket of INTAKE.md §1 — prose
+/// becomes content-addressed ground before any interpretation.
+pub fn seal_utterance(text: &str, lang: &str, author: &str) -> Result<Quantum, QuantumError> {
+    Quantum::seal(
+        &utterance_schema(),
+        &json!({
+            "text": canonicalize_utterance(text),
+            "lang": lang,
+            "raw": text,
+            "author": author,
+        }),
+    )
 }
 
 /// An emitter's proposal that an utterance *means* a particular structured claim.
@@ -107,10 +161,7 @@ pub fn structure(
     claim_schema: &Schema,
     claim_body: &Value,
 ) -> Result<Structuring, QuantumError> {
-    let utterance = Quantum::seal(
-        &utterance_schema(),
-        &json!({ "text": utterance_text, "lang": lang, "author": emitter }),
-    )?;
+    let utterance = seal_utterance(utterance_text, lang, emitter)?;
     let claim = Quantum::seal(claim_schema, claim_body)?;
     let structuring = Quantum::seal(
         &structuring_schema(),
@@ -198,6 +249,51 @@ mod tests {
         assert_eq!(a.claim.cid, b.claim.cid, "NL is projection; structure binds identity");
         // The NL never entered the claim body's identity.
         assert!(a.claim.field("prose").is_none());
+    }
+
+    /// The B-track proof: with urtext wired in, an utterance's identity is its
+    /// *canonical content*, so reformatting collapses while meaning does not.
+    /// This is INTAKE.md §1 made mechanical — "different wrap width, line
+    /// endings, bullet style seal to one CID; raw bytes remain as a projection."
+    #[cfg(feature = "prose")]
+    #[test]
+    fn reformatting_collapses_but_paraphrase_and_raw_do_not() {
+        // Same content, three formatting noises at once: CRLF line endings (N2)
+        // and a hard-wrapped paragraph (N5). Byte-distinct on the way in.
+        let a = seal_utterance("the dark energy\r\nfraction is 13/19", "en", "claude").unwrap();
+        let b = seal_utterance("the dark energy fraction is 13/19", "en", "claude").unwrap();
+
+        // Formatting collapses -> ONE utterance identity.
+        assert_eq!(
+            a.cid, b.cid,
+            "N2/N5 reformatting must canonicalize to a single utterance CID"
+        );
+        // ... yet the as-received bytes are preserved and distinct (projection:
+        // present in the body, absent from the identity that set the CID).
+        assert_ne!(
+            a.field("raw"),
+            b.field("raw"),
+            "raw bytes are kept beside the canonical form for byte-exact provenance"
+        );
+
+        // A genuine paraphrase — different words, same meaning — does NOT
+        // collapse. Meaning-collapse is the structuring stratum's job.
+        let c = seal_utterance("Omega_Lambda equals thirteen nineteenths", "en", "claude").unwrap();
+        assert_ne!(a.cid, c.cid, "a paraphrase stays a distinct utterance");
+    }
+
+    /// Without `prose`, the canonicalizer is the identity function: exact-byte
+    /// dedup only, formatting does NOT collapse. Pins the honest degraded mode so
+    /// the feature's effect is unambiguous.
+    #[cfg(not(feature = "prose"))]
+    #[test]
+    fn without_prose_reformatting_stays_distinct() {
+        let a = seal_utterance("the dark energy\r\nfraction is 13/19", "en", "claude").unwrap();
+        let b = seal_utterance("the dark energy fraction is 13/19", "en", "claude").unwrap();
+        assert_ne!(
+            a.cid, b.cid,
+            "no canonicalizer wired: formatting-equivalent utterances do not dedup"
+        );
     }
 
     #[test]

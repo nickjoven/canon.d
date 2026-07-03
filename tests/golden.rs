@@ -35,9 +35,13 @@ const GOLDEN_KEYSTONE_CID: &str =
 /// V4 — the consensus construction: the constitution root.
 /// Pins: closure settle semantics + consensus_root's domain-separated,
 /// length-prefixed Merkle fold, over all nine laws at once.
-/// History: `c8ccc5…5211` (under schema.v1) → current (under schema.v2).
+/// History: `c8ccc5…5211` (constitution schema.v1) → `d48290…a460` (census
+/// witness, schema.v2) → current (utterance law v2 — identity is the
+/// urtext-canonical content of the NL, with the as-received bytes moved to a
+/// `raw` projection; the B-track prose wire, INTAKE.md §1). A law changed, so
+/// the root moved — the diff is the migration notice.
 const GOLDEN_CONSTITUTION_ROOT: &str =
-    "d48290d6b66938a82d12209eccada7143f18d807be0c1cf709b07d5c1088a460";
+    "4e9e51980fd713f488e7629dccb18ee995dd1f3b2b85de5fafc29958c20a6caa";
 
 fn omega() -> Quantum {
     Quantum::seal(
