@@ -50,6 +50,11 @@ jobs:
         working-directory: canon.d
         run: |
           cargo test
+          # The prose wire (INTAKE.md §1): urtext is checked out as a sibling
+          # here, so `../urtext` resolves and the utterance stratum's
+          # canonical-content addressing is actually exercised. ci.yml cannot
+          # run this — it has no urtext sibling — so this is its only CI home.
+          cargo test --features prose
           cargo run -q --bin canon-demo -- constitution --json \
             | python3 -m json.tool | grep -E '"self_hosts"|"constitution_root"'
 
