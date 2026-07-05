@@ -102,7 +102,10 @@ pub fn provenance_audit(
         for g in arr {
             if let Some(g) = g.as_str() {
                 if !known_generators.contains(g) {
-                    out.push(Orphan { derived: q.cid.clone(), missing: g.to_string() });
+                    out.push(Orphan {
+                        derived: q.cid.clone(),
+                        missing: g.to_string(),
+                    });
                 }
             }
         }
@@ -130,7 +133,11 @@ pub enum EvalError {
     #[error("unknown op `{0}`")]
     UnknownOp(String),
     #[error("op `{op}` expected {expected} args, got {got}")]
-    Arity { op: String, expected: usize, got: usize },
+    Arity {
+        op: String,
+        expected: usize,
+        got: usize,
+    },
     #[error("malformed term: {0}")]
     Malformed(String),
     #[error("integer overflow (the `Rat` value algebra is i64-bounded)")]
@@ -250,10 +257,14 @@ pub fn eval(term: &Value, inputs: &[Rat]) -> Result<Rat, EvalError> {
         return inputs.get(k).copied().ok_or(EvalError::BadInput(k));
     }
     if let Some(op) = term.get("op").and_then(|v| v.as_str()) {
-        let args = term.get("args").and_then(|v| v.as_array()).ok_or_else(|| {
-            EvalError::Malformed(format!("op `{op}` needs an args array"))
-        })?;
-        let vals: Vec<Rat> = args.iter().map(|t| eval(t, inputs)).collect::<Result<_, _>>()?;
+        let args = term
+            .get("args")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| EvalError::Malformed(format!("op `{op}` needs an args array")))?;
+        let vals: Vec<Rat> = args
+            .iter()
+            .map(|t| eval(t, inputs))
+            .collect::<Result<_, _>>()?;
         return apply(op, &vals);
     }
     // --- Stage 2b: structural recursion (total by descent on a finite structure) ---
@@ -265,13 +276,17 @@ pub fn eval(term: &Value, inputs: &[Rat]) -> Result<Rat, EvalError> {
     if let Some(f) = term.get("fold").and_then(|v| v.as_object()) {
         // fold(op, init, over): a total left-fold of a binary primitive over a
         // FINITE literal list — bounded recursion by structural descent on `over`.
-        let op = f.get("op").and_then(|v| v.as_str()).ok_or_else(|| {
-            EvalError::Malformed("fold needs a string `op`".into())
-        })?;
-        let init = f.get("init").ok_or_else(|| EvalError::Malformed("fold needs `init`".into()))?;
-        let over = f.get("over").and_then(|v| v.as_array()).ok_or_else(|| {
-            EvalError::Malformed("fold needs an `over` array".into())
-        })?;
+        let op = f
+            .get("op")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EvalError::Malformed("fold needs a string `op`".into()))?;
+        let init = f
+            .get("init")
+            .ok_or_else(|| EvalError::Malformed("fold needs `init`".into()))?;
+        let over = f
+            .get("over")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| EvalError::Malformed("fold needs an `over` array".into()))?;
         let mut acc = eval(init, inputs)?;
         for elem in over {
             let e = eval(elem, inputs)?;
@@ -309,7 +324,9 @@ pub fn walk(path: &str) -> Result<Rat, EvalError> {
             'L' => hi = m,
             'R' => lo = m,
             other => {
-                return Err(EvalError::Malformed(format!("walk move must be L or R, got {other:?}")))
+                return Err(EvalError::Malformed(format!(
+                    "walk move must be L or R, got {other:?}"
+                )))
             }
         }
     }
@@ -341,7 +358,11 @@ pub fn stern_brocot_to_depth(depth: usize) -> Vec<(String, Rat)> {
 fn apply(op: &str, args: &[Rat]) -> Result<Rat, EvalError> {
     let binary = |f: fn(Rat, Rat) -> Result<Rat, EvalError>| {
         if args.len() != 2 {
-            Err(EvalError::Arity { op: op.into(), expected: 2, got: args.len() })
+            Err(EvalError::Arity {
+                op: op.into(),
+                expected: 2,
+                got: args.len(),
+            })
         } else {
             f(args[0], args[1])
         }
@@ -352,7 +373,11 @@ fn apply(op: &str, args: &[Rat]) -> Result<Rat, EvalError> {
         "mul" => binary(Rat::mul),
         "reduce" => {
             if args.len() != 1 {
-                Err(EvalError::Arity { op: op.into(), expected: 1, got: args.len() })
+                Err(EvalError::Arity {
+                    op: op.into(),
+                    expected: 1,
+                    got: args.len(),
+                })
             } else {
                 Ok(args[0]) // already reduced by construction
             }
@@ -414,7 +439,10 @@ pub type Memo = HashMap<String, String>;
 /// the input it cites*, so a forward projection cannot be exact, certain, and yet
 /// numerically wrong by feeding a value that disagrees with the fact it grounds in.
 pub fn input_value(q: &Quantum) -> Result<Rat, EvalError> {
-    match (q.field("num").and_then(|v| v.as_i64()), q.field("den").and_then(|v| v.as_i64())) {
+    match (
+        q.field("num").and_then(|v| v.as_i64()),
+        q.field("den").and_then(|v| v.as_i64()),
+    ) {
         (Some(n), Some(d)) => Rat::new(n, d),
         _ => Err(EvalError::NotValueBearing(q.cid.clone())),
     }
@@ -442,7 +470,10 @@ pub fn project(
     )?;
 
     // values come from the cited quanta — not the caller (the gate)
-    let vals: Vec<Rat> = inputs.iter().map(|q| input_value(q)).collect::<Result<_, _>>()?;
+    let vals: Vec<Rat> = inputs
+        .iter()
+        .map(|q| input_value(q))
+        .collect::<Result<_, _>>()?;
     let out = eval(program_term, &vals)?;
     let proposition = Quantum::seal(
         &proposition_schema(),
@@ -454,7 +485,12 @@ pub fn project(
     let assertion = crate::strata::seal_assertion(&proposition, &[&generator], agent)?;
 
     memo.insert(generator.cid.clone(), proposition.cid.clone());
-    Ok(Projection { generator, proposition, assertion, program_cid })
+    Ok(Projection {
+        generator,
+        proposition,
+        assertion,
+        program_cid,
+    })
 }
 
 #[cfg(test)]
@@ -483,9 +519,18 @@ mod tests {
 
     #[test]
     fn eval_errors_are_typed() {
-        assert!(matches!(eval(&json!({"lit":[1,0]}), &[]), Err(EvalError::DivByZero)));
-        assert!(matches!(eval(&json!({"in":5}), &[]), Err(EvalError::BadInput(5))));
-        assert!(matches!(eval(&json!({"op":"nope","args":[]}), &[]), Err(EvalError::UnknownOp(_))));
+        assert!(matches!(
+            eval(&json!({"lit":[1,0]}), &[]),
+            Err(EvalError::DivByZero)
+        ));
+        assert!(matches!(
+            eval(&json!({"in":5}), &[]),
+            Err(EvalError::BadInput(5))
+        ));
+        assert!(matches!(
+            eval(&json!({"op":"nope","args":[]}), &[]),
+            Err(EvalError::UnknownOp(_))
+        ));
         assert!(matches!(
             eval(&json!({"op":"mediant","args":[{"lit":[1,2]}]}), &[]),
             Err(EvalError::Arity { .. })
@@ -497,15 +542,26 @@ mod tests {
         // Projecting the mediant generator yields exactly the proposition you'd
         // get by sealing 13/19 directly: the generated fact == the asserted fact.
         let mut memo = Memo::new();
-        let pa = Quantum::seal(&proposition_schema(), &json!({"subject":"a","num":2,"den":3,"value":"2/3"})).unwrap();
-        let pb = Quantum::seal(&proposition_schema(), &json!({"subject":"b","num":11,"den":16,"value":"11/16"})).unwrap();
+        let pa = Quantum::seal(
+            &proposition_schema(),
+            &json!({"subject":"a","num":2,"den":3,"value":"2/3"}),
+        )
+        .unwrap();
+        let pb = Quantum::seal(
+            &proposition_schema(),
+            &json!({"subject":"b","num":11,"den":16,"value":"11/16"}),
+        )
+        .unwrap();
         let prog = json!({"op":"mediant","args":[{"in":0},{"in":1}]});
         let p = project(&mut memo, &prog, &[&pa, &pb], "omega_lambda", "claude").unwrap();
 
         let direct = Quantum::seal(&proposition_schema(), &json!({
             "subject":"omega_lambda","num":13,"den":19,"value":Rat::new(13,19).unwrap().reduced_string()
         })).unwrap();
-        assert_eq!(p.proposition.cid, direct.cid, "projection reproduces the fact bit-identically");
+        assert_eq!(
+            p.proposition.cid, direct.cid,
+            "projection reproduces the fact bit-identically"
+        );
     }
 
     // input propositions for the dedup tests
@@ -523,9 +579,16 @@ mod tests {
         let (pa, pb) = (prop("a", 2, 3), prop("b", 11, 16));
         let prog = json!({"op":"mediant","args":[{"in":0},{"in":1}]});
         let p1 = project(&mut memo, &prog, &[&pa, &pb], "x", "claude").unwrap();
-        assert_eq!(memo.get(&p1.generator.cid), Some(&p1.proposition.cid), "generator CID caches its output");
+        assert_eq!(
+            memo.get(&p1.generator.cid),
+            Some(&p1.proposition.cid),
+            "generator CID caches its output"
+        );
         let p2 = project(&mut memo, &prog, &[&pa, &pb], "x", "claude").unwrap();
-        assert_eq!(p1.generator.cid, p2.generator.cid, "intensional dedup: same program+inputs → one generator");
+        assert_eq!(
+            p1.generator.cid, p2.generator.cid,
+            "intensional dedup: same program+inputs → one generator"
+        );
         assert_eq!(memo.len(), 1, "re-projection hits the memo, no new entry");
     }
 
@@ -534,15 +597,27 @@ mod tests {
         let mut memo = Memo::new();
         let prog = json!({"op":"mediant","args":[{"in":0},{"in":1}]});
         let (pa, pb, pc) = (prop("a", 2, 3), prop("b", 11, 16), prop("c", 1, 2));
-        let g1 = project(&mut memo, &prog, &[&pa, &pb], "x", "claude").unwrap().generator.cid;
-        let g2 = project(&mut memo, &prog, &[&pa, &pb], "x", "claude").unwrap().generator.cid;
+        let g1 = project(&mut memo, &prog, &[&pa, &pb], "x", "claude")
+            .unwrap()
+            .generator
+            .cid;
+        let g2 = project(&mut memo, &prog, &[&pa, &pb], "x", "claude")
+            .unwrap()
+            .generator
+            .cid;
         assert_eq!(g1, g2, "same program + same ordered inputs → one generator");
         // different inputs → different generator
-        let g3 = project(&mut memo, &prog, &[&pc, &pb], "x", "claude").unwrap().generator.cid;
+        let g3 = project(&mut memo, &prog, &[&pc, &pb], "x", "claude")
+            .unwrap()
+            .generator
+            .cid;
         assert_ne!(g1, g3);
         // ORDER matters: inputs are positional ({in:0},{in:1}), so reordering is a
         // different generator (the List fix — identity binds the input order).
-        let g4 = project(&mut memo, &prog, &[&pb, &pa], "x", "claude").unwrap().generator.cid;
+        let g4 = project(&mut memo, &prog, &[&pb, &pa], "x", "claude")
+            .unwrap()
+            .generator
+            .cid;
         assert_ne!(g1, g4, "reordered inputs are a different generator");
     }
 
@@ -559,7 +634,10 @@ mod tests {
         let mut memo = Memo::new();
         let p = project(&mut memo, &prog, &[&omega], "omega_matter", "x").unwrap();
         assert_eq!(p.proposition.field("num").and_then(|v| v.as_i64()), Some(6));
-        assert_eq!(p.proposition.field("den").and_then(|v| v.as_i64()), Some(19));
+        assert_eq!(
+            p.proposition.field("den").and_then(|v| v.as_i64()),
+            Some(19)
+        );
 
         // a non-value-bearing input (an attestation has no num/den) is rejected
         let att = Quantum::seal(
@@ -567,8 +645,14 @@ mod tests {
             &json!({"instrument":"i","dataset":"d","locator":"l","value":1.0,"vouched_by":"n"}),
         )
         .unwrap();
-        assert!(matches!(input_value(&att), Err(EvalError::NotValueBearing(_))));
-        assert!(matches!(project(&mut memo, &json!({"in":0}), &[&att], "s", "x"), Err(EvalError::NotValueBearing(_))));
+        assert!(matches!(
+            input_value(&att),
+            Err(EvalError::NotValueBearing(_))
+        ));
+        assert!(matches!(
+            project(&mut memo, &json!({"in":0}), &[&att], "s", "x"),
+            Err(EvalError::NotValueBearing(_))
+        ));
     }
 
     #[test]
@@ -579,7 +663,11 @@ mod tests {
         // the per-node win belongs to the literal. The forced-vs-fitted teeth are
         // at the family level (see fractal_generator_is_holographic), not here.
         assert!(mdl(&forced) > mdl(&fitted));
-        assert_eq!(mdl(&fitted), mdl(&json!({"lit":[13,19]})), "mdl is deterministic");
+        assert_eq!(
+            mdl(&fitted),
+            mdl(&json!({"lit":[13,19]})),
+            "mdl is deterministic"
+        );
     }
 
     #[test]
@@ -594,8 +682,16 @@ mod tests {
         let asrt_schema = Schema::new("derived", 1)
             .identity("proposition", FieldKind::Cid)
             .identity("generator", FieldKind::Set(Box::new(FieldKind::Cid)));
-        let good = Quantum::seal(&asrt_schema, &json!({"proposition":p.proposition.cid,"generator":[p.generator.cid]})).unwrap();
-        let dangling = Quantum::seal(&asrt_schema, &json!({"proposition":p.proposition.cid,"generator":["nonexistent"]})).unwrap();
+        let good = Quantum::seal(
+            &asrt_schema,
+            &json!({"proposition":p.proposition.cid,"generator":[p.generator.cid]}),
+        )
+        .unwrap();
+        let dangling = Quantum::seal(
+            &asrt_schema,
+            &json!({"proposition":p.proposition.cid,"generator":["nonexistent"]}),
+        )
+        .unwrap();
 
         let mut known = BTreeSet::new();
         known.insert(p.generator.cid.clone());
@@ -616,9 +712,16 @@ mod tests {
         let a = Rat::new(9_007_199_254_740_993, 1).unwrap(); // 2^53 + 1
         let b = Rat::new(9_007_199_254_740_992, 1).unwrap(); // 2^53
         assert!(a > b, "i128 cross-multiply is exact");
-        assert_eq!(a.value(), b.value(), "their f64 values tie — why we never compare by value()");
+        assert_eq!(
+            a.value(),
+            b.value(),
+            "their f64 values tie — why we never compare by value()"
+        );
         // cases a derived (num,den) lexicographic Ord would get wrong
-        assert!(Rat::new(3, 4).unwrap() > Rat::new(5, 7).unwrap(), "0.75 > 0.714");
+        assert!(
+            Rat::new(3, 4).unwrap() > Rat::new(5, 7).unwrap(),
+            "0.75 > 0.714"
+        );
         // and the Stern-Brocot mediant order holds: 2/3 < 13/19 < 11/16
         assert!(Rat::new(2, 3).unwrap() < Rat::new(13, 19).unwrap());
         assert!(Rat::new(13, 19).unwrap() < Rat::new(11, 16).unwrap());
@@ -627,7 +730,10 @@ mod tests {
     #[test]
     fn arithmetic_overflow_is_typed_not_panic() {
         // i64::MIN is out of the toy algebra's domain → Overflow, not a panic.
-        assert!(matches!(eval(&json!({"lit":[i64::MIN, 6]}), &[]), Err(EvalError::Overflow)));
+        assert!(matches!(
+            eval(&json!({"lit":[i64::MIN, 6]}), &[]),
+            Err(EvalError::Overflow)
+        ));
         // mediant of two near-MAX rationals overflows the sum → Overflow.
         let big = json!({"op":"mediant","args":[{"lit":[i64::MAX, 1]}, {"lit":[i64::MAX, 1]}]});
         assert!(matches!(eval(&big, &[]), Err(EvalError::Overflow)));
@@ -641,13 +747,20 @@ mod tests {
 
     #[test]
     fn walk_reproduces_stern_brocot_nodes() {
-        assert_eq!(walk("").unwrap(), Rat { num: 1, den: 1 }, "empty path = the root 1/1");
+        assert_eq!(
+            walk("").unwrap(),
+            Rat { num: 1, den: 1 },
+            "empty path = the root 1/1"
+        );
         assert_eq!(walk("L").unwrap(), Rat { num: 1, den: 2 });
         assert_eq!(walk("R").unwrap(), Rat { num: 2, den: 1 });
         // the running example, now via recursion instead of a hand-written mediant
         assert_eq!(walk("LRRLLLLL").unwrap(), Rat { num: 13, den: 19 });
         // also reachable as a term through eval
-        assert_eq!(eval(&json!({"walk":"LRRLLLLL"}), &[]).unwrap(), Rat { num: 13, den: 19 });
+        assert_eq!(
+            eval(&json!({"walk":"LRRLLLLL"}), &[]).unwrap(),
+            Rat { num: 13, den: 19 }
+        );
     }
 
     #[test]
@@ -671,7 +784,14 @@ mod tests {
         // A recursive generator with NO inputs (the path is the program) projects
         // 13/19 — bit-identical to the directly sealed fact.
         let mut memo = Memo::new();
-        let p = project(&mut memo, &json!({"walk":"LRRLLLLL"}), &[], "omega_lambda", "claude").unwrap();
+        let p = project(
+            &mut memo,
+            &json!({"walk":"LRRLLLLL"}),
+            &[],
+            "omega_lambda",
+            "claude",
+        )
+        .unwrap();
         let direct = Quantum::seal(&proposition_schema(), &json!({
             "subject":"omega_lambda","num":13,"den":19,"value":Rat::new(13,19).unwrap().reduced_string()
         })).unwrap();
@@ -683,7 +803,11 @@ mod tests {
         // ONE constant-size walk rule grounds exponentially many facts.
         let depth = 6;
         let facts = stern_brocot_to_depth(depth);
-        assert_eq!(facts.len(), (1 << (depth + 1)) - 1, "2^(d+1)-1 = 127 nodes to depth 6");
+        assert_eq!(
+            facts.len(),
+            (1 << (depth + 1)) - 1,
+            "2^(d+1)-1 = 127 nodes to depth 6"
+        );
         // each is a distinct rational (Stern-Brocot enumerates without repeats)
         let distinct: std::collections::BTreeSet<_> =
             facts.iter().map(|(_, r)| (r.num, r.den)).collect();
@@ -691,7 +815,11 @@ mod tests {
         // the generating RULE is one primitive, its structural size independent of
         // how many facts it grounds: O(rule) boundary, O(2^d) bulk.
         let rule_size = mdl(&json!({"walk":""}));
-        assert_eq!(rule_size, mdl(&json!({"walk":""})), "the rule's size does not grow with the tree");
+        assert_eq!(
+            rule_size,
+            mdl(&json!({"walk":""})),
+            "the rule's size does not grow with the tree"
+        );
     }
 
     #[test]
@@ -711,16 +839,37 @@ mod tests {
         // Projection always returns the back-link assertion; its grounds name the
         // generator. There is no API path to a projected fact without provenance.
         let mut memo = Memo::new();
-        let p = project(&mut memo, &json!({"walk":"LRRLLLLL"}), &[], "omega_lambda", "claude").unwrap();
-        let grounds = p.assertion.field("grounds").and_then(|v| v.as_array()).unwrap();
+        let p = project(
+            &mut memo,
+            &json!({"walk":"LRRLLLLL"}),
+            &[],
+            "omega_lambda",
+            "claude",
+        )
+        .unwrap();
+        let grounds = p
+            .assertion
+            .field("grounds")
+            .and_then(|v| v.as_array())
+            .unwrap();
         assert_eq!(grounds.len(), 1);
-        assert_eq!(grounds[0].as_str(), Some(p.generator.cid.as_str()), "the assertion grounds the proposition in its generator");
-        assert_eq!(p.assertion.field("proposition").and_then(|v| v.as_str()), Some(p.proposition.cid.as_str()));
+        assert_eq!(
+            grounds[0].as_str(),
+            Some(p.generator.cid.as_str()),
+            "the assertion grounds the proposition in its generator"
+        );
+        assert_eq!(
+            p.assertion.field("proposition").and_then(|v| v.as_str()),
+            Some(p.proposition.cid.as_str())
+        );
 
         // And the provenance resolves: the proposition is admissible into the bulk.
         let mut known = std::collections::BTreeSet::new();
         known.insert(p.generator.cid.clone());
-        assert!(crate::strata::admissible_propositions(&[p.assertion.clone()], &known).contains(&p.proposition.cid));
+        assert!(
+            crate::strata::admissible_propositions(&[p.assertion.clone()], &known)
+                .contains(&p.proposition.cid)
+        );
     }
 
     #[test]
@@ -733,6 +882,9 @@ mod tests {
         let gs = generator_schema();
         let canon = Canon::new(&gs);
         assert!(canon.identity_projection(&p.generator.body).is_ok());
-        assert_eq!(p.generator.field("program").and_then(|v| v.as_str()), Some(p.program_cid.as_str()));
+        assert_eq!(
+            p.generator.field("program").and_then(|v| v.as_str()),
+            Some(p.program_cid.as_str())
+        );
     }
 }

@@ -48,15 +48,20 @@ pub fn verify_vouch(v: &Vouch) -> bool {
     let (Some(pk_bytes), Some(sig_bytes)) = (from_hex(&v.signer), from_hex(&v.signature)) else {
         return false;
     };
-    let (Ok(pk_arr), Ok(sig_arr)) =
-        (<[u8; 32]>::try_from(pk_bytes.as_slice()), <[u8; 64]>::try_from(sig_bytes.as_slice()))
-    else {
+    let (Ok(pk_arr), Ok(sig_arr)) = (
+        <[u8; 32]>::try_from(pk_bytes.as_slice()),
+        <[u8; 64]>::try_from(sig_bytes.as_slice()),
+    ) else {
         return false;
     };
     let Ok(pk) = VerifyingKey::from_bytes(&pk_arr) else {
         return false;
     };
-    pk.verify(v.attestation_cid.as_bytes(), &Signature::from_bytes(&sig_arr)).is_ok()
+    pk.verify(
+        v.attestation_cid.as_bytes(),
+        &Signature::from_bytes(&sig_arr),
+    )
+    .is_ok()
 }
 
 fn to_hex(bytes: &[u8]) -> String {
@@ -71,7 +76,10 @@ fn from_hex(s: &str) -> Option<Vec<u8>> {
     if s.len() % 2 != 0 {
         return None;
     }
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
+        .collect()
 }
 
 #[cfg(test)]
@@ -99,10 +107,19 @@ mod tests {
     fn different_seeds_are_distinct_signers() {
         let a = vouch(&signing_key(&[1u8; 32]), "cid");
         let b = vouch(&signing_key(&[2u8; 32]), "cid");
-        assert_ne!(a.signer, b.signer, "distinct secrets → distinct public keys");
+        assert_ne!(
+            a.signer, b.signer,
+            "distinct secrets → distinct public keys"
+        );
         // each verifies under its own key; you cannot impersonate by swapping keys
-        let forged = Vouch { signer: a.signer.clone(), ..b.clone() };
-        assert!(!verify_vouch(&forged), "b's signature does not verify under a's key");
+        let forged = Vouch {
+            signer: a.signer.clone(),
+            ..b.clone()
+        };
+        assert!(
+            !verify_vouch(&forged),
+            "b's signature does not verify under a's key"
+        );
     }
 
     #[test]

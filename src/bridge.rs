@@ -167,7 +167,11 @@ pub fn structure(
         &structuring_schema(),
         &json!({ "utterance": utterance.cid, "annotator": emitter, "claim": claim.cid }),
     )?;
-    Ok(Structuring { utterance, claim, structuring })
+    Ok(Structuring {
+        utterance,
+        claim,
+        structuring,
+    })
 }
 
 /// True when a schema declares no witness field — i.e. claims under it cannot
@@ -202,7 +206,10 @@ pub fn ground_audit(
         for target in arr {
             if let Some(t) = target.as_str() {
                 if !known.contains(t) {
-                    out.push(Ungrounded { claim: q.cid.clone(), missing: t.to_string() });
+                    out.push(Ungrounded {
+                        claim: q.cid.clone(),
+                        missing: t.to_string(),
+                    });
                 }
             }
         }
@@ -240,13 +247,26 @@ mod tests {
         let body = json!({"subject":"omega_lambda","num":13,"den":19,
                           "grounds":[att.cid],"value":rat_witness(13,19).unwrap()});
 
-        let a = structure("the dark-energy fraction is thirteen nineteenths", "en", "claude", &cs, &body).unwrap();
+        let a = structure(
+            "the dark-energy fraction is thirteen nineteenths",
+            "en",
+            "claude",
+            &cs,
+            &body,
+        )
+        .unwrap();
         let b = structure("Omega_Lambda equals 13/19", "en", "claude", &cs, &body).unwrap();
 
         // Two different NL utterances -> two distinct utterance blobs ...
-        assert_ne!(a.utterance.cid, b.utterance.cid, "paraphrases are distinct utterances");
+        assert_ne!(
+            a.utterance.cid, b.utterance.cid,
+            "paraphrases are distinct utterances"
+        );
         // ... but the SAME structured meaning -> one claim CID.
-        assert_eq!(a.claim.cid, b.claim.cid, "NL is projection; structure binds identity");
+        assert_eq!(
+            a.claim.cid, b.claim.cid,
+            "NL is projection; structure binds identity"
+        );
         // The NL never entered the claim body's identity.
         assert!(a.claim.field("prose").is_none());
     }
@@ -308,14 +328,32 @@ mod tests {
         let s2 = structure("ratio claim", "en", "claude", &cs, &body2).unwrap();
         let ss = structuring_schema();
         let canon = Canon::new(&ss);
-        let id1 = canon.identity_projection(&json!({"utterance":s1.utterance.cid,"annotator":"claude","claim":s1.claim.cid})).unwrap();
-        let id2 = canon.identity_projection(&json!({"utterance":s2.utterance.cid,"annotator":"claude","claim":s2.claim.cid})).unwrap();
-        assert_eq!(id1, id2, "same emitter re-structuring the same utterance must SUPERSEDE");
+        let id1 = canon
+            .identity_projection(
+                &json!({"utterance":s1.utterance.cid,"annotator":"claude","claim":s1.claim.cid}),
+            )
+            .unwrap();
+        let id2 = canon
+            .identity_projection(
+                &json!({"utterance":s2.utterance.cid,"annotator":"claude","claim":s2.claim.cid}),
+            )
+            .unwrap();
+        assert_eq!(
+            id1, id2,
+            "same emitter re-structuring the same utterance must SUPERSEDE"
+        );
 
         // A different emitter -> different structuring identity -> coexists (meaning Disagreement).
         let s3 = structure("ratio claim", "en", "gpt", &cs, &body2).unwrap();
-        let id3 = canon.identity_projection(&json!({"utterance":s3.utterance.cid,"annotator":"gpt","claim":s3.claim.cid})).unwrap();
-        assert_ne!(id1, id3, "two emitters proposing meanings must COEXIST, not clobber");
+        let id3 = canon
+            .identity_projection(
+                &json!({"utterance":s3.utterance.cid,"annotator":"gpt","claim":s3.claim.cid}),
+            )
+            .unwrap();
+        assert_ne!(
+            id1, id3,
+            "two emitters proposing meanings must COEXIST, not clobber"
+        );
     }
 
     #[test]
@@ -323,7 +361,11 @@ mod tests {
         // 1/3 has no finite binary float; an f64 witness rounds it. The reduced
         // "num/den" string is exact and reduces, so it verifies and re-reduces.
         assert_eq!(rat_witness(1, 3).unwrap(), "1/3");
-        assert_eq!(rat_witness(2, 6).unwrap(), "1/3", "reduces to canonical form");
+        assert_eq!(
+            rat_witness(2, 6).unwrap(),
+            "1/3",
+            "reduces to canonical form"
+        );
 
         let cs = claim_schema();
         let q = Quantum::seal(
@@ -333,16 +375,26 @@ mod tests {
         .unwrap();
         // Independent recomputation of 1/3 agrees; a wrong value disagrees. An f64
         // witness could not represent 1/3 to compare exactly at all.
-        assert!(q.verify_witness(&cs, &json!({"value": rat_witness(1, 3).unwrap()})).unwrap());
-        assert!(!q.verify_witness(&cs, &json!({"value": rat_witness(1, 2).unwrap()})).unwrap());
+        assert!(q
+            .verify_witness(&cs, &json!({"value": rat_witness(1, 3).unwrap()}))
+            .unwrap());
+        assert!(!q
+            .verify_witness(&cs, &json!({"value": rat_witness(1, 2).unwrap()}))
+            .unwrap());
         // out-of-domain inputs are typed errors, not panics
         assert!(rat_witness(1, 0).is_err());
     }
 
     #[test]
     fn attestation_is_witness_free_review_tier() {
-        assert!(needs_review(&attestation_schema()), "grounding leaves are witness-free by design");
-        assert!(!needs_review(&claim_schema()), "a claim with a witness self-checks");
+        assert!(
+            needs_review(&attestation_schema()),
+            "grounding leaves are witness-free by design"
+        );
+        assert!(
+            !needs_review(&claim_schema()),
+            "a claim with a witness self-checks"
+        );
     }
 
     #[test]

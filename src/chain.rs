@@ -30,8 +30,8 @@ use serde_json::Value;
 use crate::closure::Closure;
 use crate::crypto::{verify_vouch, Vouch};
 use crate::generator::{project, EvalError, Memo};
-use crate::quantum::Quantum;
 use crate::log::TransparencyLog;
+use crate::quantum::Quantum;
 
 /// A single hash committing to the **entire certain core** — a Merkle-style root
 /// over the closure's admitted set. Two parties agree on the consensus iff their
@@ -118,7 +118,11 @@ pub fn audit_anchor(
             logged = true;
         }
     }
-    AnchorAudit { attestation_cid: attestation_cid.to_string(), vouched_by, logged }
+    AnchorAudit {
+        attestation_cid: attestation_cid.to_string(),
+        vouched_by,
+        logged,
+    }
 }
 
 #[cfg(test)]
@@ -144,7 +148,10 @@ mod tests {
                     "value":0.6842,"vouched_by":"nick"}),
         )
         .unwrap();
-        assert!(anchor.verify(&attestation_schema()).unwrap(), "link 1: the anchor re-hashes");
+        assert!(
+            anchor.verify(&attestation_schema()).unwrap(),
+            "link 1: the anchor re-hashes"
+        );
 
         // --- SERIALIZED: a generator (program + inputs), content-addressed ---
         let program = json!({"walk":"LRRLLLLL"});
@@ -154,12 +161,18 @@ mod tests {
             &json!({"program": program_cid, "inputs": [anchor.cid]}),
         )
         .unwrap();
-        assert!(generator.verify(&generator_schema()).unwrap(), "link 2: the generator re-hashes");
+        assert!(
+            generator.verify(&generator_schema()).unwrap(),
+            "link 2: the generator re-hashes"
+        );
 
         // --- REGENERATION: project the fact, then VERIFY it reproduces ---
         let mut memo = Memo::new();
         let proj = project(&mut memo, &program, &[], "omega_lambda", "harmonics").unwrap();
-        assert!(proj.proposition.verify(&proposition_schema()).unwrap(), "link 3: the fact re-hashes");
+        assert!(
+            proj.proposition.verify(&proposition_schema()).unwrap(),
+            "link 3: the fact re-hashes"
+        );
         assert!(
             verify_regeneration(&program, &[], "omega_lambda", "harmonics", &proj.proposition.cid).unwrap(),
             "link 3: regeneration is reproducible (the fact is the faithful output of its generator)"
@@ -169,35 +182,70 @@ mod tests {
         // anchor (certain) → generator (grounded in anchor) → proposition (grounded in generator)
         let mut c = Closure::new();
         c.add_anchor(&anchor.cid);
-        c.add_rule(generator.cid.clone(), [anchor.cid.clone()].into_iter().collect());
-        c.add_rule(proj.proposition.cid.clone(), [generator.cid.clone()].into_iter().collect());
-        assert!(c.is_certain(&proj.proposition.cid), "the regenerated fact is certain — grounded to the lab anchor");
+        c.add_rule(
+            generator.cid.clone(),
+            [anchor.cid.clone()].into_iter().collect(),
+        );
+        c.add_rule(
+            proj.proposition.cid.clone(),
+            [generator.cid.clone()].into_iter().collect(),
+        );
+        assert!(
+            c.is_certain(&proj.proposition.cid),
+            "the regenerated fact is certain — grounded to the lab anchor"
+        );
 
         let root = consensus_root(&c);
         // Rebuilding from the same boundary + justifications yields the SAME root.
         let mut c2 = Closure::new();
-        c2.add_rule(proj.proposition.cid.clone(), [generator.cid.clone()].into_iter().collect()); // different order
-        c2.add_rule(generator.cid.clone(), [anchor.cid.clone()].into_iter().collect());
+        c2.add_rule(
+            proj.proposition.cid.clone(),
+            [generator.cid.clone()].into_iter().collect(),
+        ); // different order
+        c2.add_rule(
+            generator.cid.clone(),
+            [anchor.cid.clone()].into_iter().collect(),
+        );
         c2.add_anchor(&anchor.cid);
-        assert_eq!(root, consensus_root(&c2), "the consensus root is order-independent — two verifiers agree by one hash");
+        assert_eq!(
+            root,
+            consensus_root(&c2),
+            "the consensus root is order-independent — two verifiers agree by one hash"
+        );
 
         // --- TAMPER EVIDENCE, two modes ---
         // (a) tamper IN PLACE — keep the CID, mutate the body. The stored bytes no
         //     longer hash to the address, so `verify` catches it.
         let mut in_place = proj.proposition.clone();
         in_place.body["num"] = json!(99);
-        assert!(!in_place.verify(&proposition_schema()).unwrap(), "an in-place tamper fails its hash");
+        assert!(
+            !in_place.verify(&proposition_schema()).unwrap(),
+            "an in-place tamper fails its hash"
+        );
         // (b) SUBSTITUTE — seal a different fact honestly. Its CID differs, so a
         //     chain grounding it has a different consensus root: two verifiers
         //     comparing one hash detect the substitution.
-        let substituted = Quantum::seal(&proposition_schema(),
-            &json!({"subject":"omega_lambda","num":99,"den":1,"value":"99/1"})).unwrap();
+        let substituted = Quantum::seal(
+            &proposition_schema(),
+            &json!({"subject":"omega_lambda","num":99,"den":1,"value":"99/1"}),
+        )
+        .unwrap();
         assert_ne!(substituted.cid, proj.proposition.cid);
         let mut c3 = Closure::new();
         c3.add_anchor(&anchor.cid);
-        c3.add_rule(generator.cid.clone(), [anchor.cid.clone()].into_iter().collect());
-        c3.add_rule(substituted.cid.clone(), [generator.cid].into_iter().collect());
-        assert_ne!(root, consensus_root(&c3), "a substituted fact moves the consensus root");
+        c3.add_rule(
+            generator.cid.clone(),
+            [anchor.cid.clone()].into_iter().collect(),
+        );
+        c3.add_rule(
+            substituted.cid.clone(),
+            [generator.cid].into_iter().collect(),
+        );
+        assert_ne!(
+            root,
+            consensus_root(&c3),
+            "a substituted fact moves the consensus root"
+        );
     }
 
     #[test]
@@ -226,27 +274,40 @@ mod tests {
         // An UNTRUSTED signer's vouch doesn't count, even if cryptographically valid.
         let stranger = vouch(&signing_key(&[1u8; 32]), &anchor.cid);
         let a2 = audit_anchor(&anchor.cid, &[stranger], &trusted, &log);
-        assert!(!a2.is_auditable(), "a valid signature from outside the root of trust is not enough");
+        assert!(
+            !a2.is_auditable(),
+            "a valid signature from outside the root of trust is not enough"
+        );
 
         // A vouch that was never logged: trusted but not auditable (no record).
         let unlogged_log = TransparencyLog::new();
         let a3 = audit_anchor(&anchor.cid, &[v.clone()], &trusted, &unlogged_log);
-        assert_eq!(a3.vouched_by, vec![v.signer.clone()], "the vouch is valid …");
+        assert_eq!(
+            a3.vouched_by,
+            vec![v.signer.clone()],
+            "the vouch is valid …"
+        );
         assert!(!a3.logged, "… but unlogged → not auditable");
         assert!(!a3.is_auditable());
 
         // A vouch over a DIFFERENT anchor doesn't audit this one.
         let other = vouch(&sk, "some-other-cid");
         let a4 = audit_anchor(&anchor.cid, &[other], &trusted, &log);
-        assert!(a4.vouched_by.is_empty(), "a vouch for another CID is irrelevant here");
+        assert!(
+            a4.vouched_by.is_empty(),
+            "a vouch for another CID is irrelevant here"
+        );
     }
 
     #[test]
     fn regeneration_mismatch_is_caught() {
         // Claiming a generator produced a fact it did not → verify_regeneration false.
         let program = json!({"walk":"LRRLLLLL"}); // = 13/19
-        let wrong = Quantum::seal(&proposition_schema(),
-            &json!({"subject":"omega_lambda","num":1,"den":2,"value":"1/2"})).unwrap();
+        let wrong = Quantum::seal(
+            &proposition_schema(),
+            &json!({"subject":"omega_lambda","num":1,"den":2,"value":"1/2"}),
+        )
+        .unwrap();
         assert!(!verify_regeneration(&program, &[], "omega_lambda", "h", &wrong.cid).unwrap());
     }
 }

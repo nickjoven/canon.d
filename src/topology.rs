@@ -63,8 +63,7 @@ impl TopologyView {
 
         for node in nodes {
             // Cluster by (schema_cid, identity_hash) when both are present
-            if let (Some(ref schema), Some(ref identity)) =
-                (&node.schema_cid, &node.identity_hash)
+            if let (Some(ref schema), Some(ref identity)) = (&node.schema_cid, &node.identity_hash)
             {
                 let key = (schema.clone(), identity.clone());
                 let cluster = clusters.entry(key).or_insert_with(|| Cluster {

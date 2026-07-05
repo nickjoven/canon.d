@@ -10,8 +10,9 @@
 //! producer, then reconcile against the measurement the value claims.
 
 use canon_d::{
-    attestation_schema, consensus_root, export, import, project, proposition_schema, reconcile_gate,
-    Bundle, BundleEntry, Memo, Quantum, Rule, SchemaKind, Tolerance, TransparencyLog,
+    attestation_schema, consensus_root, export, import, project, proposition_schema,
+    reconcile_gate, Bundle, BundleEntry, Memo, Quantum, Rule, SchemaKind, Tolerance,
+    TransparencyLog,
 };
 use serde_json::json;
 
@@ -36,8 +37,14 @@ fn main() {
         ],
         vec![anchor.cid.clone()],
         vec![
-            Rule { head: proj.generator.cid.clone(), body: vec![anchor.cid.clone()] },
-            Rule { head: proj.proposition.cid.clone(), body: vec![proj.generator.cid.clone()] },
+            Rule {
+                head: proj.generator.cid.clone(),
+                body: vec![anchor.cid.clone()],
+            },
+            Rule {
+                head: proj.proposition.cid.clone(),
+                body: vec![proj.generator.cid.clone()],
+            },
         ],
         &TransparencyLog::new(),
         vec![],
@@ -50,9 +57,17 @@ fn main() {
     // --- Party B imports & verifies, having computed nothing ---
     let received: Bundle = serde_json::from_str(&wire).unwrap();
     let loaded = import(&received).expect("verified");
-    println!("Party B imported it — re-verified every quantum, replayed the log, rebuilt the closure.");
-    println!("  agree on the entire knowledge state by ONE hash? {}", consensus_root(&loaded.closure) == bundle.consensus_root);
-    println!("  Ω_Λ certain in B's substrate (B computed nothing)? {}", loaded.closure.is_certain(&proj.proposition.cid));
+    println!(
+        "Party B imported it — re-verified every quantum, replayed the log, rebuilt the closure."
+    );
+    println!(
+        "  agree on the entire knowledge state by ONE hash? {}",
+        consensus_root(&loaded.closure) == bundle.consensus_root
+    );
+    println!(
+        "  Ω_Λ certain in B's substrate (B computed nothing)? {}",
+        loaded.closure.is_certain(&proj.proposition.cid)
+    );
     println!("  (reputation-free: this verifies the same whether A is famous or obscure.)\n");
 
     // --- Tamper one field → rejected ---
@@ -67,7 +82,12 @@ fn main() {
     let omega = loaded.certain_fact(&proj.proposition.cid).unwrap();
     let ok = reconcile_gate(&[(omega, &anchor)], &Tolerance::default()).unwrap();
     println!("Reconcile 13/19 vs Planck 0.6847 ± 0.0073:");
-    println!("  {} at {:.3}σ  → gate {:?}", ok.verdicts[0].1.label(), ok.verdicts[0].1.z(), ok.outcome);
+    println!(
+        "  {} at {:.3}σ  → gate {:?}",
+        ok.verdicts[0].1.label(),
+        ok.verdicts[0].1.z(),
+        ok.outcome
+    );
 
     // --- A wrong derived value → Falsified → blocked ---
     let wrong = Quantum::seal(
@@ -77,5 +97,11 @@ fn main() {
     .unwrap();
     let bad = reconcile_gate(&[(&wrong, &anchor)], &Tolerance::default()).unwrap();
     println!("Reconcile 1/2 vs Planck:");
-    println!("  {} at {:.1}σ  → gate {:?} (exit {})", bad.verdicts[0].1.label(), bad.verdicts[0].1.z(), bad.outcome, bad.outcome.exit_code());
+    println!(
+        "  {} at {:.1}σ  → gate {:?} (exit {})",
+        bad.verdicts[0].1.label(),
+        bad.verdicts[0].1.z(),
+        bad.outcome,
+        bad.outcome.exit_code()
+    );
 }

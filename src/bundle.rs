@@ -52,7 +52,9 @@ fn schema_for(k: SchemaKind) -> Schema {
 
 fn body_digest(body: &Value) -> String {
     // canonical bytes: serde_json sorts object keys (preserve_order off)
-    blake3::hash(&serde_json::to_vec(body).expect("body serializes")).to_hex().to_string()
+    blake3::hash(&serde_json::to_vec(body).expect("body serializes"))
+        .to_hex()
+        .to_string()
 }
 
 /// A sealed quantum in transit: its schema kind, canonical body, claimed CID, and
@@ -69,7 +71,12 @@ pub struct BundleEntry {
 
 impl BundleEntry {
     pub fn of(kind: SchemaKind, q: &Quantum) -> Self {
-        BundleEntry { kind, body: q.body.clone(), cid: q.cid.clone(), body_digest: body_digest(&q.body) }
+        BundleEntry {
+            kind,
+            body: q.body.clone(),
+            cid: q.cid.clone(),
+            body_digest: body_digest(&q.body),
+        }
     }
 }
 
@@ -147,7 +154,14 @@ pub fn export(
     vouches: Vec<Vouch>,
 ) -> Bundle {
     let consensus_root = consensus_root(&build_closure(&anchors, &rules));
-    Bundle { entries, anchors, rules, log_payloads: log.payloads(), vouches, consensus_root }
+    Bundle {
+        entries,
+        anchors,
+        rules,
+        log_payloads: log.payloads(),
+        vouches,
+        consensus_root,
+    }
 }
 
 /// Import a bundle into a fresh substrate: verify every quantum, replay+verify the
@@ -178,9 +192,16 @@ pub fn import(b: &Bundle) -> Result<Loaded, BundleError> {
     // 4. the integrity seal: the regenerated bulk must match the shipped root.
     let rebuilt = consensus_root(&closure);
     if rebuilt != b.consensus_root {
-        return Err(BundleError::RootMismatch { claimed: b.consensus_root.clone(), rebuilt });
+        return Err(BundleError::RootMismatch {
+            claimed: b.consensus_root.clone(),
+            rebuilt,
+        });
     }
-    Ok(Loaded { closure, quanta, log })
+    Ok(Loaded {
+        closure,
+        quanta,
+        log,
+    })
 }
 
 #[cfg(test)]
@@ -211,7 +232,10 @@ mod tests {
         let json = serde_json::to_string(&b).unwrap();
         let back: Bundle = serde_json::from_str(&json).unwrap();
         let loaded = import(&back).unwrap();
-        assert!(loaded.certain_fact(&anchor_cid).is_some(), "the bundled anchor is certain after import");
+        assert!(
+            loaded.certain_fact(&anchor_cid).is_some(),
+            "the bundled anchor is certain after import"
+        );
     }
 
     #[test]
@@ -219,7 +243,10 @@ mod tests {
         let (_, mut b) = anchor_bundle();
         // tamper the body but keep the claimed cid → re-seal mismatch
         b.entries[0].body["value"] = json!(999.0);
-        assert!(matches!(import(&b), Err(BundleError::CorruptQuantum { .. })));
+        assert!(matches!(
+            import(&b),
+            Err(BundleError::CorruptQuantum { .. })
+        ));
     }
 
     #[test]

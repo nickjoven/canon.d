@@ -1,19 +1,25 @@
-//! canon-demo — the three demo scenarios as a CLI surface.
+//! canon-demo — the demo scenarios and the intake surface as a CLI.
 //!
 //!   cargo run --bin canon-demo -- <skip|drift|verify|all> [--json]
+//!   cargo run --bin canon-demo -- intake <file.md> [--json] [--annotator ID]
+//!   cargo run --bin canon-demo -- intake-corpus <dir> [--json] [--annotator ID]
+//!                                 [--emit-graph-json <path>]
 //!
 //! Human-readable by default; `--json` emits one machine-readable object per
-//! demo (the same numbers the web page and deck render). Exit code is the
-//! worst gate outcome across the demos run, so it drops straight into CI.
+//! command (the same numbers the web page and deck render). Exit codes follow
+//! the U5 contract everywhere: 0 = clean, 1 = findings (needs_review/blocked/
+//! gate violation), 2 = environment error — so every command drops straight
+//! into CI.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 use std::process::exit;
 
 use canon_d::{
-    attestation_schema, consensus_root, cross_audit, dedup_gate, export, gate::Candidate, import,
-    project, proposition_schema, reconcile_gate, seal_constitution, Bundle, BundleEntry, Claim,
-    CrossAuditConflict, Disposition, Memo, Quantum, Rat, RatInterval, Rule, SchemaKind, Tolerance,
-    TransparencyLog,
+    attestation_schema, consensus_root, corpus_graph, cross_audit, dedup_gate, export,
+    gate::Candidate, import, intake, intake_corpus, project, proposition_schema, reconcile_gate,
+    seal_constitution, Bundle, BundleEntry, Claim, CrossAuditConflict, Disposition, IntakeConfig,
+    IntakeReport, Memo, Quantum, Rat, RatInterval, Rule, SchemaKind, Tolerance, TransparencyLog,
 };
 use serde_json::{json, Value};
 
@@ -37,16 +43,27 @@ fn short(c: &str) -> &str {
 fn demo_skip() -> Value {
     let omega = seal_ratio("omega_lambda", 13, 19);
     let known_cids: BTreeSet<String> = [omega.cid.clone()].into_iter().collect();
-    let known_claims = vec![Claim { cid: omega.cid.clone(), interval: point(13, 19) }];
+    let known_claims = vec![Claim {
+        cid: omega.cid.clone(),
+        interval: point(13, 19),
+    }];
 
     let candidates = vec![
-        Candidate { label: "Ω_Λ (exact, re-requested)".into(), cid: omega.cid.clone(), interval: point(13, 19) },
+        Candidate {
+            label: "Ω_Λ (exact, re-requested)".into(),
+            cid: omega.cid.clone(),
+            interval: point(13, 19),
+        },
         Candidate {
             label: "Ω_Λ ∈ (0.6, 0.7) (a coarse bound)".into(),
             cid: "would-be-cid-coarse".into(),
             interval: RatInterval::new(Rat::new(3, 5).unwrap(), Rat::new(7, 10).unwrap()).unwrap(),
         },
-        Candidate { label: "Ω_b = 1/19 (genuinely new)".into(), cid: "would-be-cid-omega-b".into(), interval: point(1, 19) },
+        Candidate {
+            label: "Ω_b = 1/19 (genuinely new)".into(),
+            cid: "would-be-cid-omega-b".into(),
+            interval: point(1, 19),
+        },
     ];
 
     let n = candidates.len();
@@ -154,8 +171,14 @@ fn demo_verify() -> Value {
         ],
         vec![anchor.cid.clone()],
         vec![
-            Rule { head: proj.generator.cid.clone(), body: vec![anchor.cid.clone()] },
-            Rule { head: proj.proposition.cid.clone(), body: vec![proj.generator.cid.clone()] },
+            Rule {
+                head: proj.generator.cid.clone(),
+                body: vec![anchor.cid.clone()],
+            },
+            Rule {
+                head: proj.proposition.cid.clone(),
+                body: vec![proj.generator.cid.clone()],
+            },
         ],
         &TransparencyLog::new(),
         vec![],
@@ -271,7 +294,10 @@ fn print_constitution(v: &Value) {
         "  self-hosts (fixpoint · articles reverify · witness route · rebuild-bit-identical)? {}",
         v["self_hosts"]
     );
-    println!("\nLaws sealed as quanta under the meta-schema: {}", v["laws"]);
+    println!(
+        "\nLaws sealed as quanta under the meta-schema: {}",
+        v["laws"]
+    );
     for a in v["articles"].as_array().unwrap() {
         println!(
             "  {:<16} schema {}  →  quantum {}",
@@ -282,9 +308,19 @@ fn print_constitution(v: &Value) {
     }
     let t = &v["treaty"];
     println!("\nTreaty (the inter-substrate contract):");
-    println!("  wire v{}, body digest {}", t["wire_version"], t["body_digest_algo"].as_str().unwrap());
-    println!("  canonicalizer fingerprint: {}", t["canon_rule_cid"].as_str().unwrap());
-    println!("\nConstitution root: {}", v["constitution_root"].as_str().unwrap());
+    println!(
+        "  wire v{}, body digest {}",
+        t["wire_version"],
+        t["body_digest_algo"].as_str().unwrap()
+    );
+    println!(
+        "  canonicalizer fingerprint: {}",
+        t["canon_rule_cid"].as_str().unwrap()
+    );
+    println!(
+        "\nConstitution root: {}",
+        v["constitution_root"].as_str().unwrap()
+    );
     println!(
         "  shipped a {}-byte bundle; a peer re-derived the root sealing nothing? {}",
         v["bundle_bytes"], v["portable_root_reproduced"]
@@ -296,9 +332,15 @@ fn print_constitution(v: &Value) {
 // ---------------------------------------------------------------------------
 // lead every demo with the documented LLM failure it neutralizes.
 fn print_failure_header(v: &Value) {
-    println!("\x1b[2mDocumented failure:\x1b[0m \x1b[1m{}\x1b[0m", v["failure"].as_str().unwrap());
+    println!(
+        "\x1b[2mDocumented failure:\x1b[0m \x1b[1m{}\x1b[0m",
+        v["failure"].as_str().unwrap()
+    );
     println!("\x1b[2m  “{}”\x1b[0m", v["quote"].as_str().unwrap());
-    println!("\x1b[2m  — {}  arXiv:2602.06176\x1b[0m\n", v["cite"].as_str().unwrap());
+    println!(
+        "\x1b[2m  — {}  arXiv:2602.06176\x1b[0m\n",
+        v["cite"].as_str().unwrap()
+    );
 }
 
 fn print_skip(v: &Value) {
@@ -308,7 +350,12 @@ fn print_skip(v: &Value) {
     println!("Agent wants {n} facts. Naively → {n} remote calls.\n");
     for it in v["items"].as_array().unwrap() {
         let pad = format!("{:<28}", it["reason"].as_str().unwrap());
-        println!("  {}  {}  {}", it["verdict"].as_str().unwrap(), pad, it["label"].as_str().unwrap());
+        println!(
+            "  {}  {}  {}",
+            it["verdict"].as_str().unwrap(),
+            pad,
+            it["label"].as_str().unwrap()
+        );
     }
     println!(
         "\n→ {} of {n} calls avoided. Remote loops: {} (not {n}).",
@@ -321,37 +368,271 @@ fn print_drift(v: &Value) {
     println!("\x1b[1mNo silent drift\x1b[0m — equivalent-but-rephrased can't diverge here\n");
     let c = &v["corroboration"];
     println!("Two agents reach Ω_Λ = 13/19 by different paths:");
-    println!("  same CID? {}  → ONE node, corroborated (not a conflict)", c["same_cid"]);
+    println!(
+        "  same CID? {}  → ONE node, corroborated (not a conflict)",
+        c["same_cid"]
+    );
     println!("  cross-audit conflicts: {}\n", c["conflicts"]);
     let b = &v["canonicalizer_bug"];
     println!("Agent C ships a bug: leaves 26/38 unreduced:");
     println!("  13/19 → {}", b["reduced_cid"].as_str().unwrap());
-    println!("  26/38 → {}  (different address — looks brand-new)", b["unreduced_cid"].as_str().unwrap());
+    println!(
+        "  26/38 → {}  (different address — looks brand-new)",
+        b["unreduced_cid"].as_str().unwrap()
+    );
     for u in b["undermerge"].as_array().unwrap() {
-        println!("  ⚠ UnderMerge: one value {} resolved to {} forms → bug CAUGHT.", u["witness"].as_str().unwrap(), u["forms"]);
+        println!(
+            "  ⚠ UnderMerge: one value {} resolved to {} forms → bug CAUGHT.",
+            u["witness"].as_str().unwrap(),
+            u["forms"]
+        );
     }
 }
 
 fn print_verify(v: &Value) {
     print_failure_header(v);
     println!("\x1b[1mVerify what you didn't compute\x1b[0m — assessment, externalized\n");
-    println!("Party A ships a {}-byte bundle (root {}).", v["bundle_bytes"], v["consensus_root"].as_str().unwrap());
+    println!(
+        "Party A ships a {}-byte bundle (root {}).",
+        v["bundle_bytes"],
+        v["consensus_root"].as_str().unwrap()
+    );
     println!("Party B imported it — re-verified every quantum, replayed the log.");
-    println!("  agree on the whole state by ONE hash? {}", v["agree_one_hash"]);
-    println!("  Ω_Λ certain in B (B computed nothing)? {}", v["certain_without_computing"]);
-    println!("  flip one field → import rejected? {}\n", v["tamper_rejected"]);
+    println!(
+        "  agree on the whole state by ONE hash? {}",
+        v["agree_one_hash"]
+    );
+    println!(
+        "  Ω_Λ certain in B (B computed nothing)? {}",
+        v["certain_without_computing"]
+    );
+    println!(
+        "  flip one field → import rejected? {}\n",
+        v["tamper_rejected"]
+    );
     let g = &v["reconcile_good"];
     println!("Reconcile 13/19 vs Planck 0.6847 ± 0.0073:");
-    println!("  {} at {:.3}σ → gate {}", g["label"].as_str().unwrap(), g["sigma"].as_f64().unwrap(), g["outcome"].as_str().unwrap());
+    println!(
+        "  {} at {:.3}σ → gate {}",
+        g["label"].as_str().unwrap(),
+        g["sigma"].as_f64().unwrap(),
+        g["outcome"].as_str().unwrap()
+    );
     let bad = &v["reconcile_bad"];
     println!("Reconcile 1/2 vs Planck:");
-    println!("  {} at {:.1}σ → gate {} (exit {})", bad["label"].as_str().unwrap(), bad["sigma"].as_f64().unwrap(), bad["outcome"].as_str().unwrap(), bad["exit"]);
+    println!(
+        "  {} at {:.1}σ → gate {} (exit {})",
+        bad["label"].as_str().unwrap(),
+        bad["sigma"].as_f64().unwrap(),
+        bad["outcome"].as_str().unwrap(),
+        bad["exit"]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// intake — the Unit-1 surface (INTAKE.md). Exit codes: 0 clean, 1 findings,
+// 2 environment error (missing file/dir, unreadable input, unwritable output).
+// ---------------------------------------------------------------------------
+
+/// `id` for a doc path: the file stem, matching harmonics' node-id convention.
+fn doc_id(path: &Path) -> String {
+    path.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+    args.iter()
+        .position(|a| a == flag)
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.as_str())
+}
+
+/// Positional arguments: everything that is neither a flag nor a value
+/// consumed by a value-taking flag. `positionals(&args)[0]` is the subcommand.
+fn positionals(args: &[String]) -> Vec<&str> {
+    const VALUE_FLAGS: [&str; 2] = ["--annotator", "--emit-graph-json"];
+    let mut out = Vec::new();
+    let mut skip = false;
+    for a in args {
+        if skip {
+            skip = false;
+            continue;
+        }
+        if VALUE_FLAGS.contains(&a.as_str()) {
+            skip = true;
+            continue;
+        }
+        if a.starts_with("--") {
+            continue;
+        }
+        out.push(a.as_str());
+    }
+    out
+}
+
+fn print_intake_report(r: &IntakeReport) {
+    println!(
+        "\x1b[1m{}\x1b[0m  utterance {}  (canonicalizer: {})",
+        r.doc_id,
+        short(&r.utterance_cid),
+        r.canonicalizer
+    );
+    for e in &r.edges {
+        println!(
+            "  edge     {} \x1b[2m--{}->\x1b[0m {}   annotation {}",
+            e.from,
+            e.kind,
+            e.to,
+            short(&e.annotation_cid)
+        );
+    }
+    if !r.references.is_empty() {
+        println!(
+            "  refs     {} untyped (reported, not sealed)",
+            r.references.len()
+        );
+    }
+    for p in &r.propositions {
+        println!(
+            "  claim    {} = {}   proposition {}  assertion {}",
+            p.subject,
+            p.witness,
+            short(&p.proposition_cid),
+            short(&p.assertion_cid)
+        );
+    }
+    for b in &r.blocked {
+        println!(
+            "  \x1b[31mBLOCKED\x1b[0m  {} — re-asserts Falsified {}",
+            b.subject,
+            short(&b.proposition_cid)
+        );
+    }
+    for n in &r.needs_review {
+        println!(
+            "  \x1b[33mREVIEW\x1b[0m   [{}] {} — {}",
+            n.kind, n.subject, n.detail
+        );
+    }
+}
+
+fn cmd_intake(args: &[String], json_out: bool) -> i32 {
+    let Some(&path) = positionals(args).get(1) else {
+        eprintln!("usage: canon-demo intake <file.md> [--json] [--annotator ID]");
+        return 2;
+    };
+    let path = Path::new(path);
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("cannot read {}: {e}", path.display());
+            return 2;
+        }
+    };
+    let mut cfg = IntakeConfig::new(flag_value(args, "--annotator").unwrap_or("canon-demo"));
+    // Single-file mode: the corpus is the file's siblings, so lineage targets
+    // and references resolve exactly as they would in a corpus run.
+    if let Some(dir) = path.parent() {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.extension().is_some_and(|x| x == "md") {
+                    cfg.corpus_ids.insert(doc_id(&p));
+                }
+            }
+        }
+    }
+    match intake(&doc_id(path), &text, &cfg) {
+        Ok(r) => {
+            if json_out {
+                println!("{}", serde_json::to_string_pretty(&r).unwrap());
+            } else {
+                print_intake_report(&r);
+            }
+            r.exit_code()
+        }
+        Err(e) => {
+            eprintln!("intake failed: {e}");
+            2
+        }
+    }
+}
+
+fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
+    let Some(&dir) = positionals(args).get(1) else {
+        eprintln!("usage: canon-demo intake-corpus <dir> [--json] [--annotator ID] [--emit-graph-json <path>]");
+        return 2;
+    };
+    let mut docs: Vec<(String, String)> = Vec::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("cannot read {dir}: {e}");
+            return 2;
+        }
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.extension().is_some_and(|x| x == "md") {
+            match std::fs::read_to_string(&p) {
+                Ok(t) => docs.push((doc_id(&p), t)),
+                Err(err) => {
+                    eprintln!("cannot read {}: {err}", p.display());
+                    return 2;
+                }
+            }
+        }
+    }
+    if docs.is_empty() {
+        eprintln!("no .md documents under {dir}");
+        return 2;
+    }
+    let cfg = IntakeConfig::new(flag_value(args, "--annotator").unwrap_or("canon-demo"));
+    let report = match intake_corpus(&docs, &cfg) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("intake failed: {e}");
+            return 2;
+        }
+    };
+    if let Some(out) = flag_value(args, "--emit-graph-json") {
+        let graph = corpus_graph(&report, dir);
+        if let Err(e) = std::fs::write(out, serde_json::to_string_pretty(&graph).unwrap()) {
+            eprintln!("cannot write {out}: {e}");
+            return 2;
+        }
+    }
+    if json_out {
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    } else {
+        for r in &report.reports {
+            print_intake_report(r);
+        }
+        for c in &report.cross_conflicts {
+            println!(
+                "\x1b[33mREVIEW\x1b[0m [corpus:{}] {} — {}",
+                c.kind, c.subject, c.detail
+            );
+        }
+        let t = &report.telemetry;
+        println!("\n{} docs · {} sealed · {} unstructured · {} edges · {} refs · {} propositions · review depth {} · {} blocked",
+            t.docs, t.utterances_sealed, t.unstructured, t.edges_promoted,
+            t.references_untyped, t.propositions, t.needs_review_depth, t.reassertion_blocks);
+    }
+    report.exit_code()
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let json_out = args.iter().any(|a| a == "--json");
-    let which = args.iter().find(|a| !a.starts_with("--")).map(|s| s.as_str()).unwrap_or("all");
+    let which = positionals(&args).first().copied().unwrap_or("all");
+
+    match which {
+        "intake" => exit(cmd_intake(&args, json_out)),
+        "intake-corpus" => exit(cmd_intake_corpus(&args, json_out)),
+        _ => {}
+    }
 
     let demos: Vec<Value> = match which {
         "skip" => vec![demo_skip()],
@@ -365,10 +646,18 @@ fn main() {
         }
     };
 
-    let worst = demos.iter().map(|d| d["exit"].as_i64().unwrap_or(0)).max().unwrap_or(0);
+    let worst = demos
+        .iter()
+        .map(|d| d["exit"].as_i64().unwrap_or(0))
+        .max()
+        .unwrap_or(0);
 
     if json_out {
-        let out = if demos.len() == 1 { demos[0].clone() } else { json!(demos) };
+        let out = if demos.len() == 1 {
+            demos[0].clone()
+        } else {
+            json!(demos)
+        };
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     } else {
         for (i, d) in demos.iter().enumerate() {

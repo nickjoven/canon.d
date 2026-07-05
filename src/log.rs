@@ -47,7 +47,10 @@ pub struct TransparencyLog {
 
 impl Default for TransparencyLog {
     fn default() -> Self {
-        TransparencyLog { entries: Vec::new(), head: genesis() }
+        TransparencyLog {
+            entries: Vec::new(),
+            head: genesis(),
+        }
     }
 }
 
@@ -62,7 +65,12 @@ impl TransparencyLog {
         let seq = self.entries.len() as u64;
         let prev = self.head.clone();
         let hash = entry_hash(&prev, seq, payload);
-        self.entries.push(LogEntry { seq, prev, payload: payload.to_string(), hash: hash.clone() });
+        self.entries.push(LogEntry {
+            seq,
+            prev,
+            payload: payload.to_string(),
+            hash: hash.clone(),
+        });
         self.head = hash.clone();
         hash
     }
@@ -147,7 +155,11 @@ mod tests {
         honest.append("seal:a");
         honest.append("seal:FORGED");
         honest.append("seal:c");
-        assert_ne!(honest.head(), pinned_head, "the forged history has a different head");
+        assert_ne!(
+            honest.head(),
+            pinned_head,
+            "the forged history has a different head"
+        );
     }
 
     #[test]

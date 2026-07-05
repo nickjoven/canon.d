@@ -71,7 +71,10 @@ impl Closure {
     /// eager and lazy paths).
     fn register(&mut self, head: &str, body: BTreeSet<String>) {
         for g in &body {
-            self.dependents.entry(g.clone()).or_default().insert(head.to_string());
+            self.dependents
+                .entry(g.clone())
+                .or_default()
+                .insert(head.to_string());
         }
         self.rules.entry(head.to_string()).or_default().push(body);
     }
@@ -118,7 +121,12 @@ impl Closure {
         if self.staged.is_empty() && self.deferred.is_empty() {
             return;
         }
-        let seeds: Vec<String> = self.staged.iter().chain(self.deferred.iter()).cloned().collect();
+        let seeds: Vec<String> = self
+            .staged
+            .iter()
+            .chain(self.deferred.iter())
+            .cloned()
+            .collect();
         // affected = seeds ∪ transitive dependents
         let mut affected: BTreeSet<String> = BTreeSet::new();
         let mut stack = seeds;
@@ -164,11 +172,17 @@ impl Closure {
                 self.admitted.insert(c.clone());
             }
         }
-        let seeds: Vec<String> = self.staged.iter().chain(self.deferred.iter()).cloned().collect();
+        let seeds: Vec<String> = self
+            .staged
+            .iter()
+            .chain(self.deferred.iter())
+            .cloned()
+            .collect();
         let mut best: BTreeMap<String, f64> = BTreeMap::new();
         let mut region: BTreeSet<String> = BTreeSet::new();
         let mut cut: BTreeSet<String> = BTreeSet::new();
-        let mut frontier: Vec<(String, f64)> = seeds.iter().map(|s| (s.clone(), amplitude)).collect();
+        let mut frontier: Vec<(String, f64)> =
+            seeds.iter().map(|s| (s.clone(), amplitude)).collect();
         while let Some((node, amp)) = frontier.pop() {
             if amp < floor {
                 cut.insert(node); // the deferred frontier — do not recurse past it
@@ -203,7 +217,11 @@ impl Closure {
                 if self.admitted.contains(p) || self.contested.contains(p) {
                     continue;
                 }
-                if self.rules.get(p).is_some_and(|rs| rs.iter().any(|b| b.is_subset(&self.admitted))) {
+                if self
+                    .rules
+                    .get(p)
+                    .is_some_and(|rs| rs.iter().any(|b| b.is_subset(&self.admitted)))
+                {
                     self.admitted.insert(p.clone());
                     changed = true;
                 }
@@ -242,8 +260,10 @@ impl Closure {
         let head = assertion.field("proposition").and_then(|v| v.as_str());
         let grounds = assertion.field("grounds").and_then(|v| v.as_array());
         if let (Some(head), Some(grounds)) = (head, grounds) {
-            let body: BTreeSet<String> =
-                grounds.iter().filter_map(|g| g.as_str().map(String::from)).collect();
+            let body: BTreeSet<String> = grounds
+                .iter()
+                .filter_map(|g| g.as_str().map(String::from))
+                .collect();
             self.add_rule(head.to_string(), body);
         }
     }
@@ -310,13 +330,20 @@ impl Closure {
     fn cascade(&mut self, seed: String) {
         let mut stack = vec![seed];
         while let Some(c) = stack.pop() {
-            let deps: Vec<String> =
-                self.dependents.get(&c).map(|s| s.iter().cloned().collect()).unwrap_or_default();
+            let deps: Vec<String> = self
+                .dependents
+                .get(&c)
+                .map(|s| s.iter().cloned().collect())
+                .unwrap_or_default();
             for d in deps {
                 if self.admitted.contains(&d) || self.contested.contains(&d) {
                     continue;
                 }
-                if self.rules.get(&d).is_some_and(|rs| rs.iter().any(|b| b.is_subset(&self.admitted))) {
+                if self
+                    .rules
+                    .get(&d)
+                    .is_some_and(|rs| rs.iter().any(|b| b.is_subset(&self.admitted)))
+                {
                     self.admitted.insert(d.clone());
                     stack.push(d);
                 }
@@ -330,7 +357,8 @@ impl Closure {
     /// full reach), so calibration sees the whole distribution it is about to cut.
     pub fn amplitude_spectrum(&self, seeds: &[&str], amplitude: f64, attenuation: f64) -> Vec<f64> {
         let mut best: BTreeMap<String, f64> = BTreeMap::new();
-        let mut frontier: Vec<(String, f64)> = seeds.iter().map(|s| (s.to_string(), amplitude)).collect();
+        let mut frontier: Vec<(String, f64)> =
+            seeds.iter().map(|s| (s.to_string(), amplitude)).collect();
         while let Some((node, amp)) = frontier.pop() {
             if amp <= 0.0 {
                 continue;
@@ -365,9 +393,9 @@ impl Closure {
     /// currently fully grounded — i.e. independent corroboration. More support =
     /// costlier to falsify (more anchors must be withdrawn to un-certify it).
     pub fn support(&self, cid: &str) -> usize {
-        self.rules
-            .get(cid)
-            .map_or(0, |rs| rs.iter().filter(|b| b.is_subset(&self.admitted)).count())
+        self.rules.get(cid).map_or(0, |rs| {
+            rs.iter().filter(|b| b.is_subset(&self.admitted)).count()
+        })
     }
 }
 
@@ -395,7 +423,10 @@ mod tests {
         let mut c = Closure::new();
         c.add_anchor("a");
         c.add_rule("P".into(), set(&["a", "x"]));
-        assert!(!c.is_certain("P"), "a fact with an unresolved ground stays uncertain");
+        assert!(
+            !c.is_certain("P"),
+            "a fact with an unresolved ground stays uncertain"
+        );
     }
 
     #[test]
@@ -424,7 +455,11 @@ mod tests {
         c.add_rule("Q".into(), set(&["P"]));
         assert_eq!(*c.certain(), set(&["a", "b", "P", "Q"]));
         c.retract("a"); // withdraw the anchor P (and thus Q) rest on
-        assert_eq!(*c.certain(), set(&["b"]), "the blast radius loses certainty");
+        assert_eq!(
+            *c.certain(),
+            set(&["b"]),
+            "the blast radius loses certainty"
+        );
     }
 
     #[test]
@@ -464,7 +499,11 @@ mod tests {
 
         lazy.settle();
         assert_eq!(lazy.pending(), 0);
-        assert_eq!(lazy.certain(), eager.certain(), "batched settle == eager result");
+        assert_eq!(
+            lazy.certain(),
+            eager.certain(),
+            "batched settle == eager result"
+        );
         assert_eq!(*lazy.certain(), set(&["a", "P", "Q"]));
     }
 
@@ -475,7 +514,11 @@ mod tests {
         c.stage_rule("P".into(), set(&["a"]));
         c.stage_anchor("a"); // anchor staged last
         c.settle();
-        assert_eq!(*c.certain(), set(&["a", "P", "Q"]), "order-independent within a batch");
+        assert_eq!(
+            *c.certain(),
+            set(&["a", "P", "Q"]),
+            "order-independent within a batch"
+        );
         c.settle(); // no pending → no-op
         assert_eq!(*c.certain(), set(&["a", "P", "Q"]));
     }
@@ -487,8 +530,15 @@ mod tests {
         c.add_rule("P".into(), set(&["a"]));
         c.add_rule("Q".into(), set(&["P"]));
         assert_eq!(c.reach("a"), 3, "a change at the anchor touches a, P, Q");
-        assert_eq!(c.reach("Q"), 1, "a change at the leaf touches only itself — cheap");
-        assert!(c.reach("a") > c.reach("Q"), "the anchor is gravitational; the leaf is local");
+        assert_eq!(
+            c.reach("Q"),
+            1,
+            "a change at the leaf touches only itself — cheap"
+        );
+        assert!(
+            c.reach("a") > c.reach("Q"),
+            "the anchor is gravitational; the leaf is local"
+        );
     }
 
     // --- Step 2: floored settle ---
@@ -510,7 +560,11 @@ mod tests {
         c.stage_anchor("a");
         c.settle_floored(1.0, 0.5, 0.0); // floor 0 ⇒ nothing cut ⇒ exact
         assert_eq!(*c.certain(), set(&["a", "P", "Q", "R"]));
-        assert_eq!(c.pending(), 0, "floor 0 leaves nothing deferred — recovers eager exactly");
+        assert_eq!(
+            c.pending(),
+            0,
+            "floor 0 leaves nothing deferred — recovers eager exactly"
+        );
     }
 
     #[test]
@@ -518,9 +572,12 @@ mod tests {
         let mut c = primed_chain();
         c.stage_anchor("a");
         c.settle_floored(1.0, 0.5, 0.3); // a=1, P=0.5 (≥), Q=0.25 (<) cut, R behind
-        // sound UNDER-approximation: only what's reached above floor is certain …
+                                         // sound UNDER-approximation: only what's reached above floor is certain …
         assert_eq!(*c.certain(), set(&["a", "P"]));
-        assert!(!c.is_certain("Q") && !c.is_certain("R"), "far effects deferred, not denied wrongly");
+        assert!(
+            !c.is_certain("Q") && !c.is_certain("R"),
+            "far effects deferred, not denied wrongly"
+        );
         // … and the deferral is EXPLICIT (no silent drift) …
         assert!(c.pending() > 0, "the cut frontier is pending");
         // … and a full settle RECOVERS the exact core.
@@ -540,7 +597,10 @@ mod tests {
             let mut c = primed_chain();
             c.stage_anchor("a");
             c.settle_floored(1.0, 0.5, floor);
-            assert!(c.certain().is_subset(exact.certain()), "floor {floor}: no false certainty");
+            assert!(
+                c.certain().is_subset(exact.certain()),
+                "floor {floor}: no false certainty"
+            );
         }
     }
 
@@ -557,7 +617,10 @@ mod tests {
         let mut fine = primed_chain();
         fine.stage_anchor("a");
         fine.settle_floored(1.0, 0.3, 0.3);
-        assert!(fine.certain().len() < 4 && fine.pending() > 0, "fine signal dissipates locally");
+        assert!(
+            fine.certain().len() < 4 && fine.pending() > 0,
+            "fine signal dissipates locally"
+        );
     }
 
     // --- Step 3: calibrate the floor (the self-calibration loop) ---
@@ -566,18 +629,26 @@ mod tests {
     fn calibrated_budget_floor_bounds_the_settle() {
         use crate::propagation::floor_for_budget;
         let mut c = primed_chain(); // a→P→Q→R, rules primed (dependents populated)
-        // read the spectrum a change at `a` would induce, then pick the floor that
-        // settles a 2-node budget — calibration drives the floor, not a guess.
+                                    // read the spectrum a change at `a` would induce, then pick the floor that
+                                    // settles a 2-node budget — calibration drives the floor, not a guess.
         let spectrum = c.amplitude_spectrum(&["a"], 1.0, 0.5);
         assert_eq!(spectrum.len(), 4, "a, P, Q, R all reachable");
         let floor = floor_for_budget(&spectrum, 2);
 
         c.stage_anchor("a");
         c.settle_floored(1.0, 0.5, floor);
-        assert_eq!(*c.certain(), set(&["a", "P"]), "the budget floor settles exactly the coarse 2");
+        assert_eq!(
+            *c.certain(),
+            set(&["a", "P"]),
+            "the budget floor settles exactly the coarse 2"
+        );
         assert!(c.pending() > 0, "the rest is deferred, explicitly");
         c.settle();
-        assert_eq!(*c.certain(), set(&["a", "P", "Q", "R"]), "and recovers exactly");
+        assert_eq!(
+            *c.certain(),
+            set(&["a", "P", "Q", "R"]),
+            "and recovers exactly"
+        );
     }
 
     #[test]
@@ -588,7 +659,10 @@ mod tests {
         let c = primed_chain();
         let spectrum = c.amplitude_spectrum(&["a"], 1.0, 0.5);
         let cal = calibrate_floor(&spectrum).unwrap();
-        assert!((cal.separation - 1.0).abs() < 1e-9, "uniform graph ⇒ no distinguished floor");
+        assert!(
+            (cal.separation - 1.0).abs() < 1e-9,
+            "uniform graph ⇒ no distinguished floor"
+        );
     }
 
     #[test]
@@ -602,7 +676,10 @@ mod tests {
         assert!(c.is_certain("Q"));
         c.mark_contested("P");
         assert!(!c.is_certain("P"));
-        assert!(!c.is_certain("Q"), "what rests on a contested fact is not certain either");
+        assert!(
+            !c.is_certain("Q"),
+            "what rests on a contested fact is not certain either"
+        );
         assert!(c.is_certain("a"), "the untouched anchor stays certain");
     }
 }

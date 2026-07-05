@@ -39,13 +39,11 @@ impl<'a> Canon<'a> {
     ///
     /// Returns canonical bytes ready for `ket put`.
     pub fn encode(&self, input: &Value) -> Result<Vec<u8>, CanonError> {
-        let obj = input
-            .as_object()
-            .ok_or_else(|| CanonError::TypeMismatch {
-                field: "<root>".into(),
-                expected: "object".into(),
-                actual: type_name(input).into(),
-            })?;
+        let obj = input.as_object().ok_or_else(|| CanonError::TypeMismatch {
+            field: "<root>".into(),
+            expected: "object".into(),
+            actual: type_name(input).into(),
+        })?;
 
         let mut canonical = serde_json::Map::new();
 
@@ -82,13 +80,11 @@ impl<'a> Canon<'a> {
     /// Two records with the same identity projection represent
     /// "the same thing" even if their non-identity fields differ.
     pub fn identity_projection(&self, input: &Value) -> Result<Vec<u8>, CanonError> {
-        let obj = input
-            .as_object()
-            .ok_or_else(|| CanonError::TypeMismatch {
-                field: "<root>".into(),
-                expected: "object".into(),
-                actual: type_name(input).into(),
-            })?;
+        let obj = input.as_object().ok_or_else(|| CanonError::TypeMismatch {
+            field: "<root>".into(),
+            expected: "object".into(),
+            actual: type_name(input).into(),
+        })?;
 
         let mut canonical = serde_json::Map::new();
         for field in &self.schema.fields {
@@ -117,13 +113,11 @@ impl<'a> Canon<'a> {
     /// detection). Witness fields are required by construction, so an absent one
     /// is an error, not an omission.
     pub fn witness_projection(&self, input: &Value) -> Result<Vec<u8>, CanonError> {
-        let obj = input
-            .as_object()
-            .ok_or_else(|| CanonError::TypeMismatch {
-                field: "<root>".into(),
-                expected: "object".into(),
-                actual: type_name(input).into(),
-            })?;
+        let obj = input.as_object().ok_or_else(|| CanonError::TypeMismatch {
+            field: "<root>".into(),
+            expected: "object".into(),
+            actual: type_name(input).into(),
+        })?;
 
         let mut canonical = serde_json::Map::new();
         for field in &self.schema.fields {
@@ -176,11 +170,7 @@ fn normalize_value(kind: &FieldKind, val: &Value) -> Value {
     match kind {
         FieldKind::List(inner_kind) => {
             if let Some(arr) = val.as_array() {
-                Value::Array(
-                    arr.iter()
-                        .map(|v| normalize_value(inner_kind, v))
-                        .collect(),
-                )
+                Value::Array(arr.iter().map(|v| normalize_value(inner_kind, v)).collect())
             } else {
                 val.clone()
             }
@@ -272,8 +262,7 @@ mod tests {
         let schema = observation_schema();
         let canon = Canon::new(&schema);
 
-        let input: Value =
-            serde_json::from_str(r#"{"subject":"x","predicate":"y"}"#).unwrap();
+        let input: Value = serde_json::from_str(r#"{"subject":"x","predicate":"y"}"#).unwrap();
 
         assert!(canon.encode(&input).is_err());
     }
@@ -283,10 +272,9 @@ mod tests {
         let schema = observation_schema();
         let canon = Canon::new(&schema);
 
-        let with: Value = serde_json::from_str(
-            r#"{"subject":"x","predicate":"y","value":"z","confidence":0.8}"#,
-        )
-        .unwrap();
+        let with: Value =
+            serde_json::from_str(r#"{"subject":"x","predicate":"y","value":"z","confidence":0.8}"#)
+                .unwrap();
         let without: Value =
             serde_json::from_str(r#"{"subject":"x","predicate":"y","value":"z"}"#).unwrap();
 
@@ -322,10 +310,9 @@ mod tests {
         let schema = observation_schema();
         let canon = Canon::new(&schema);
 
-        let input: Value = serde_json::from_str(
-            r#"{"subject":"x","predicate":"y","value":"z","confidence":0.5}"#,
-        )
-        .unwrap();
+        let input: Value =
+            serde_json::from_str(r#"{"subject":"x","predicate":"y","value":"z","confidence":0.5}"#)
+                .unwrap();
 
         let bytes = canon.encode(&input).unwrap();
         let decoded = canon.decode(&bytes).unwrap();

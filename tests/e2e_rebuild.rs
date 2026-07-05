@@ -31,9 +31,19 @@ fn one_fact_cid_threads_every_layer() {
         "the back-link grounds exactly the produced fact"
     );
     let cl = build_closure(&c, false);
-    assert!(cl.is_certain(&c.proposition.cid), "the closure certifies that same CID");
     assert!(
-        verify_regeneration(&c.program, &[], "omega_lambda", "harmonics", &c.proposition.cid).unwrap(),
+        cl.is_certain(&c.proposition.cid),
+        "the closure certifies that same CID"
+    );
+    assert!(
+        verify_regeneration(
+            &c.program,
+            &[],
+            "omega_lambda",
+            "harmonics",
+            &c.proposition.cid
+        )
+        .unwrap(),
         "and the generator reproduces that same CID"
     );
 }
@@ -44,7 +54,11 @@ fn rebuild_is_bit_identical_across_order_and_laziness() {
     let root = consensus_root(&build_closure(&c, false));
 
     // (a) lazy stage+settle == eager
-    assert_eq!(root, consensus_root(&build_closure(&c, true)), "eager == lazy");
+    assert_eq!(
+        root,
+        consensus_root(&build_closure(&c, true)),
+        "eager == lazy"
+    );
 
     // (b) different insertion order — rules before their grounds, anchor last
     let mut rev = Closure::new();
@@ -55,7 +69,10 @@ fn rebuild_is_bit_identical_across_order_and_laziness() {
 
     // (c) rebuilt from scratch — content-addressing makes CIDs and root identical
     let c2 = omega_corpus();
-    assert_eq!(c.proposition.cid, c2.proposition.cid, "rebuilt fact is bit-identical");
+    assert_eq!(
+        c.proposition.cid, c2.proposition.cid,
+        "rebuilt fact is bit-identical"
+    );
     assert_eq!(
         root,
         consensus_root(&build_closure(&c2, false)),

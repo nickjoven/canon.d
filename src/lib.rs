@@ -24,16 +24,16 @@ pub mod chain;
 pub mod closure;
 pub mod constitution;
 pub mod cost;
-pub mod crypto;
-pub mod lineage;
-pub mod log;
-pub mod propagation;
 pub mod cross_topology;
+pub mod crypto;
 pub mod domain;
 pub mod gate;
 pub mod generator;
 pub mod intake;
+pub mod lineage;
+pub mod log;
 pub mod mapping;
+pub mod propagation;
 pub mod quantum;
 pub mod reconcile;
 mod schema;
@@ -41,13 +41,13 @@ pub mod strata;
 pub mod subsume;
 mod topology;
 
-pub use alignment::{AlignConfig, AlignRationale, Candidate, align, candidates_to_mappings};
+pub use alignment::{align, candidates_to_mappings, AlignConfig, AlignRationale, Candidate};
 pub use bridge::{
-    Structuring, Ungrounded, attestation_schema, ground_audit, needs_review, structure,
-    structuring_schema, utterance_schema,
+    attestation_schema, ground_audit, needs_review, structure, structuring_schema,
+    utterance_schema, Structuring, Ungrounded,
 };
-pub use canon::{Canon, CanonError};
 pub use bundle::{export, import, Bundle, BundleEntry, BundleError, Loaded, Rule, SchemaKind};
+pub use canon::{Canon, CanonError};
 pub use chain::{audit_anchor, consensus_root, verify_regeneration, AnchorAudit};
 pub use closure::Closure;
 pub use constitution::{
@@ -56,31 +56,33 @@ pub use constitution::{
 pub use cost::{cost_report, Budget, CostReport};
 // note: `gate::Candidate` is *not* re-exported at the root (name clashes with
 // `alignment::Candidate`); reach it via `canon_d::gate::Candidate`.
-pub use gate::{dedup_gate, reconcile_gate, DedupReport, Disposition, GateOutcome, ReconcileReport};
 pub use crypto::{signing_key, verify_vouch, vouch, Vouch};
+pub use gate::{
+    dedup_gate, reconcile_gate, DedupReport, Disposition, GateOutcome, ReconcileReport,
+};
 // note: `intake::Structurer` and route types are *not* re-exported at the root
 // (`Structurer` would shadow easily in downstream glob imports); reach them via
 // `canon_d::intake::{Structurer, LineageRoute, ReferenceRoute, RatioRoute}`.
+pub use cross_topology::{CrossTopologyView, Disagreement, DomainBridge, TransitivePath};
+pub use domain::Domain;
+pub use generator::{
+    eval, generator_schema, mdl, project, provenance_audit, seal_program, stern_brocot_to_depth,
+    walk, EvalError, Memo, Orphan, Projection, Rat,
+};
 pub use intake::{
     corpus_graph, intake, intake_corpus, CorpusReport, IntakeConfig, IntakeError, IntakeReport,
 };
 pub use lineage::{lineage_closure, lineage_to_annotations, parse_lineage, TypedEdge};
 pub use log::{LogEntry, TransparencyLog};
+pub use mapping::{mapping_schema, Direction, Mapping, MappingBuilder};
 pub use propagation::{calibrate_floor, floor_for_budget, levels, propagate, reach, Calibration};
-pub use cross_topology::{CrossTopologyView, DomainBridge, Disagreement, TransitivePath};
-pub use domain::Domain;
-pub use mapping::{Direction, Mapping, MappingBuilder, mapping_schema};
 pub use quantum::{
-    CrossAuditConflict, EDGE_KINDS, Quantum, QuantumError, address, cross_audit,
-    edge_annotation_schema, schema_cid, validate_edge_kind,
+    address, cross_audit, edge_annotation_schema, schema_cid, validate_edge_kind,
+    CrossAuditConflict, Quantum, QuantumError, EDGE_KINDS,
 };
 pub use reconcile::{
     reconcile, reconcile_quanta, seal_verification, verification_schema, Agreement, ReconcileError,
     Tolerance,
-};
-pub use generator::{
-    eval, generator_schema, mdl, project, provenance_audit, seal_program, stern_brocot_to_depth,
-    walk, EvalError, Memo, Orphan, Projection, Rat,
 };
 pub use schema::{Field, FieldKind, Schema};
 pub use strata::{

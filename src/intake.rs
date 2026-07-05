@@ -93,8 +93,12 @@ pub struct StructuringOutput {
 /// is sealed into every annotation it produces — no anonymous extraction.
 pub trait Structurer {
     fn id(&self) -> &str;
-    fn structure(&self, doc_id: &str, canonical_text: &str, corpus_ids: &BTreeSet<String>)
-        -> StructuringOutput;
+    fn structure(
+        &self,
+        doc_id: &str,
+        canonical_text: &str,
+        corpus_ids: &BTreeSet<String>,
+    ) -> StructuringOutput;
 }
 
 /// The lineage route: canon.d's `## Lineage` parser with the harmonics import
@@ -151,12 +155,18 @@ impl Structurer for RatioRoute {
         "ratio/v1"
     }
     fn structure(&self, _doc: &str, text: &str, _corpus: &BTreeSet<String>) -> StructuringOutput {
-        StructuringOutput { ratios: extract_ratio_claims(text), ..Default::default() }
+        StructuringOutput {
+            ratios: extract_ratio_claims(text),
+            ..Default::default()
+        }
     }
 }
 
 fn strip_doc_suffix(target: &str) -> &str {
-    target.strip_suffix(".md").or_else(|| target.strip_suffix(".py")).unwrap_or(target)
+    target
+        .strip_suffix(".md")
+        .or_else(|| target.strip_suffix(".py"))
+        .unwrap_or(target)
 }
 
 fn is_word(c: char) -> bool {
@@ -357,7 +367,11 @@ fn canonicalizer_mode() -> &'static str {
 /// Intake one document. See the module doc for the pipeline; the invariant to
 /// hold onto: **every proposal lands in exactly one report bucket**, and the
 /// report is a pure function of `(doc_id, raw_text, cfg)`.
-pub fn intake(doc_id: &str, raw_text: &str, cfg: &IntakeConfig) -> Result<IntakeReport, IntakeError> {
+pub fn intake(
+    doc_id: &str,
+    raw_text: &str,
+    cfg: &IntakeConfig,
+) -> Result<IntakeReport, IntakeError> {
     let utterance = seal_utterance(raw_text, &cfg.lang, &cfg.annotator)?;
     // Structure the *canonical* text — the substrate's form, not the wire form.
     let canonical = utterance
@@ -419,7 +433,10 @@ pub fn intake(doc_id: &str, raw_text: &str, cfg: &IntakeConfig) -> Result<Intake
                     kind: "invalid_ratio".into(),
                     doc: doc_id.into(),
                     subject: c.subject.clone(),
-                    detail: format!("{}/{} is outside the exact-rational domain: {e}", c.num, c.den),
+                    detail: format!(
+                        "{}/{} is outside the exact-rational domain: {e}",
+                        c.num, c.den
+                    ),
                 });
                 continue;
             }
@@ -494,8 +511,8 @@ pub struct Telemetry {
 
 impl CorpusReport {
     pub fn exit_code(&self) -> i32 {
-        let clean = self.cross_conflicts.is_empty()
-            && self.reports.iter().all(|r| r.exit_code() == 0);
+        let clean =
+            self.cross_conflicts.is_empty() && self.reports.iter().all(|r| r.exit_code() == 0);
         if clean {
             0
         } else {
@@ -516,7 +533,9 @@ pub fn intake_corpus(
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut full_cfg = cfg.clone();
-    full_cfg.corpus_ids.extend(docs.iter().map(|(id, _)| id.clone()));
+    full_cfg
+        .corpus_ids
+        .extend(docs.iter().map(|(id, _)| id.clone()));
 
     let mut reports = Vec::new();
     for (id, text) in sorted {
@@ -524,9 +543,16 @@ pub fn intake_corpus(
     }
 
     // Corpus-wide cross-audit: re-seal every promoted proposition (idempotent —
-    // same CIDs) and diff form against witness across the whole batch.
+    // same CIDs) and diff form against witness. Grouped **per subject**: the
+    // witness is the value alone, so two different subjects sharing a value
+    // (x = 1/3 and y = 1/3) legitimately have one witness under two identity
+    // CIDs — that is the corpus talking about two things, not an UnderMerge.
+    // Auditing the whole bag at once reports exactly that false positive (the
+    // same class quantum.rs pins in
+    // `grounds_in_identity_false_positives_on_corroboration`); within one
+    // subject, one witness under two forms IS the non-reducing-emitter bug.
     let schema = proposition_schema();
-    let mut quanta = Vec::new();
+    let mut by_subject: BTreeMap<String, Vec<Quantum>> = BTreeMap::new();
     let mut prop_doc: BTreeMap<String, String> = BTreeMap::new();
     for r in &reports {
         for p in &r.propositions {
@@ -534,12 +560,18 @@ pub fn intake_corpus(
                 &schema,
                 &json!({"subject": p.subject, "num": p.num, "den": p.den, "value": p.witness}),
             )?;
-            prop_doc.entry(q.cid.clone()).or_insert_with(|| r.doc_id.clone());
-            quanta.push(q);
+            prop_doc
+                .entry(q.cid.clone())
+                .or_insert_with(|| r.doc_id.clone());
+            by_subject.entry(p.subject.clone()).or_default().push(q);
         }
     }
+    let mut conflicts_raw = Vec::new();
+    for quanta in by_subject.values() {
+        conflicts_raw.extend(cross_audit(&schema, quanta)?);
+    }
     let mut cross_conflicts = Vec::new();
-    for c in cross_audit(&schema, &quanta)? {
+    for c in conflicts_raw {
         let (kind, subject, detail) = match &c {
             CrossAuditConflict::UnderMerge { witness, cids } => (
                 "cross_audit_conflict",
@@ -549,7 +581,11 @@ pub fn intake_corpus(
             CrossAuditConflict::WitnessDisagreement { cid, witnesses } => (
                 "cross_audit_conflict",
                 cid.clone(),
-                format!("one form, {} witnesses: {}", witnesses.len(), witnesses.join(", ")),
+                format!(
+                    "one form, {} witnesses: {}",
+                    witnesses.len(),
+                    witnesses.join(", ")
+                ),
             ),
         };
         let doc = match &c {
@@ -562,7 +598,12 @@ pub fn intake_corpus(
                 prop_doc.get(cid).cloned().unwrap_or_default()
             }
         };
-        cross_conflicts.push(ReviewItem { kind: kind.into(), doc, subject, detail });
+        cross_conflicts.push(ReviewItem {
+            kind: kind.into(),
+            doc,
+            subject,
+            detail,
+        });
     }
     cross_conflicts.sort();
 
@@ -578,7 +619,11 @@ pub fn intake_corpus(
         reassertion_blocks: reports.iter().map(|r| r.blocked.len()).sum(),
     };
 
-    Ok(CorpusReport { reports, cross_conflicts, telemetry })
+    Ok(CorpusReport {
+        reports,
+        cross_conflicts,
+        telemetry,
+    })
 }
 
 /// The compat graph projection (INTAKE.md integration step 1): the corpus as
@@ -591,10 +636,16 @@ pub fn corpus_graph(report: &CorpusReport, generated_by: &str) -> Value {
     let mut inverse: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for r in &report.reports {
         for e in &r.edges {
-            inverse.entry(e.to.clone()).or_default().insert(r.doc_id.clone());
+            inverse
+                .entry(e.to.clone())
+                .or_default()
+                .insert(r.doc_id.clone());
         }
         for t in &r.references {
-            inverse.entry(t.clone()).or_default().insert(r.doc_id.clone());
+            inverse
+                .entry(t.clone())
+                .or_default()
+                .insert(r.doc_id.clone());
         }
     }
     let nodes: Vec<Value> = report
@@ -603,8 +654,11 @@ pub fn corpus_graph(report: &CorpusReport, generated_by: &str) -> Value {
         .map(|r| {
             let mut depends: BTreeSet<String> = r.references.iter().cloned().collect();
             depends.extend(r.edges.iter().map(|e| e.to.clone()));
-            let lineage: BTreeMap<&str, &str> =
-                r.edges.iter().map(|e| (e.to.as_str(), e.kind.as_str())).collect();
+            let lineage: BTreeMap<&str, &str> = r
+                .edges
+                .iter()
+                .map(|e| (e.to.as_str(), e.kind.as_str()))
+                .collect();
             json!({
                 "id": r.doc_id,
                 "cid": r.utterance_cid,
@@ -654,9 +708,15 @@ elsewhere; see `klein_bottle.md` for the topology.
         let r = intake("baryon_fraction", DOC, &cfg).unwrap();
         assert_eq!(r.edges.len(), 2);
         let g = r.edges.iter().find(|e| e.kind == "grounds").unwrap();
-        assert_eq!(g.to, "klein_bottle", "`.md` suffix stripped before resolution");
+        assert_eq!(
+            g.to, "klein_bottle",
+            "`.md` suffix stripped before resolution"
+        );
         for e in &r.edges {
-            assert!(!e.annotation_cid.is_empty(), "typed edges are sealed annotations");
+            assert!(
+                !e.annotation_cid.is_empty(),
+                "typed edges are sealed annotations"
+            );
             assert!(validate_edge_kind(&json!({"kind": e.kind})).is_ok());
         }
         assert_eq!(r.exit_code(), 0);
@@ -710,7 +770,10 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
             "claude",
         )
         .unwrap();
-        assert_eq!(assertion.cid, p.assertion_cid, "assertion grounds = the source utterance");
+        assert_eq!(
+            assertion.cid, p.assertion_cid,
+            "assertion grounds = the source utterance"
+        );
 
         let known: BTreeSet<String> = [r.utterance_cid.clone()].into_iter().collect();
         assert!(ground_audit("grounds", &[assertion], &known).is_empty());
@@ -725,8 +788,16 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
         assert_eq!(
             claims,
             vec![
-                RatioClaim { subject: "x1".into(), num: 3, den: 4 },
-                RatioClaim { subject: "prefix_x1".into(), num: 3, den: 4 },
+                RatioClaim {
+                    subject: "x1".into(),
+                    num: 3,
+                    den: 4
+                },
+                RatioClaim {
+                    subject: "prefix_x1".into(),
+                    num: 3,
+                    den: 4
+                },
             ]
         );
     }
@@ -753,7 +824,10 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
         cfg.falsified.insert(falsified_prop.cid.clone());
 
         let r = intake("relitigator", "recall that s_v = 16/1 exactly\n", &cfg).unwrap();
-        assert!(r.propositions.is_empty(), "no assertion sealed for a Falsified claim");
+        assert!(
+            r.propositions.is_empty(),
+            "no assertion sealed for a Falsified claim"
+        );
         assert_eq!(r.blocked.len(), 1);
         assert_eq!(r.blocked[0].proposition_cid, falsified_prop.cid);
         assert_eq!(r.exit_code(), 1);
@@ -782,6 +856,24 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
     }
 
     #[test]
+    fn shared_value_across_subjects_is_not_a_conflict() {
+        // Found by the first run over the real harmonics corpus: many subjects
+        // legitimately share a value (several docs each define some ratio as
+        // 1/3). The witness is the value alone, so a whole-bag audit calls
+        // that an UnderMerge; the per-subject grouping must not.
+        let docs = vec![
+            ("a".to_string(), "x = 1/3\n".to_string()),
+            ("b".to_string(), "y = 1/3\n".to_string()),
+        ];
+        let report = intake_corpus(&docs, &IntakeConfig::new("claude")).unwrap();
+        assert!(
+            report.cross_conflicts.is_empty(),
+            "two subjects, one value — two claims, not a canonicalizer bug"
+        );
+        assert_eq!(report.exit_code(), 0);
+    }
+
+    #[test]
     fn corpus_intake_is_order_independent() {
         let fwd = vec![
             ("a".to_string(), "x = 1/2\nsee `b.md`\n".to_string()),
@@ -791,7 +883,10 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
         let cfg = IntakeConfig::new("claude");
         let fa = serde_json::to_string(&intake_corpus(&fwd, &cfg).unwrap()).unwrap();
         let fb = serde_json::to_string(&intake_corpus(&rev, &cfg).unwrap()).unwrap();
-        assert_eq!(fa, fb, "corpus intake is a commutative fold, like the CAS it feeds");
+        assert_eq!(
+            fa, fb,
+            "corpus intake is a commutative fold, like the CAS it feeds"
+        );
     }
 
     #[test]
@@ -807,7 +902,10 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
         let a = nodes.iter().find(|n| n["id"] == "a").unwrap();
         let b = nodes.iter().find(|n| n["id"] == "b").unwrap();
         assert_eq!(a["sealed"], true);
-        assert!(a["cid"].as_str().unwrap().len() == 64, "nodes carry the utterance CID");
+        assert!(
+            a["cid"].as_str().unwrap().len() == 64,
+            "nodes carry the utterance CID"
+        );
         assert_eq!(b["depends_on"][0], "a");
         assert_eq!(a["depended_on_by"][0], "b");
         assert_eq!(b["lineage"]["a"], "grounds");
@@ -818,7 +916,11 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
         let docs = vec![("plain".to_string(), "just prose, no claims\n".to_string())];
         let report = intake_corpus(&docs, &IntakeConfig::new("claude")).unwrap();
         assert_eq!(report.telemetry.unstructured, 1);
-        assert_eq!(report.exit_code(), 0, "an unstructured doc is a coverage gap, not a failure");
+        assert_eq!(
+            report.exit_code(),
+            0,
+            "an unstructured doc is a coverage gap, not a failure"
+        );
     }
 
     /// With urtext wired in, a reformatting of the corpus produces the SAME
@@ -842,6 +944,9 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
     #[test]
     fn degraded_mode_is_pinned_loudly() {
         let r = intake("d", "x = 1/2\n", &IntakeConfig::new("claude")).unwrap();
-        assert_eq!(r.canonicalizer, "identity", "the mode is in the report, not ambient");
+        assert_eq!(
+            r.canonicalizer, "identity",
+            "the mode is in the report, not ambient"
+        );
     }
 }

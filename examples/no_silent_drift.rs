@@ -31,7 +31,10 @@ fn main() {
     let b = seal(13, 19, "13/19"); // agent B, independent
     println!("  agent A → {}", short(&a.cid));
     println!("  agent B → {}", short(&b.cid));
-    println!("  same CID? {}  → ONE node, corroborated (NOT a conflict to resolve)", a.cid == b.cid);
+    println!(
+        "  same CID? {}  → ONE node, corroborated (NOT a conflict to resolve)",
+        a.cid == b.cid
+    );
     let clean = cross_audit(&schema, &[a, b]).unwrap();
     println!("  cross-audit conflicts: {}", clean.len());
     println!("  (a string- or embedding-dedup might have flagged these as a clash.)\n");
@@ -40,11 +43,17 @@ fn main() {
     let good = seal(13, 19, "13/19");
     let buggy = seal(26, 38, "13/19"); // SAME value, wrong (unreduced) form
     println!("  13/19 → {}", short(&good.cid));
-    println!("  26/38 → {}  (different address — looks like a brand-new fact)", short(&buggy.cid));
+    println!(
+        "  26/38 → {}  (different address — looks like a brand-new fact)",
+        short(&buggy.cid)
+    );
     let conflicts = cross_audit(&schema, &[good, buggy]).unwrap();
     for c in &conflicts {
         if let CrossAuditConflict::UnderMerge { witness, cids } = c {
-            println!("  ⚠ UnderMerge: one value {witness} resolved to {} forms → the bug is CAUGHT.", cids.len());
+            println!(
+                "  ⚠ UnderMerge: one value {witness} resolved to {} forms → the bug is CAUGHT.",
+                cids.len()
+            );
         }
     }
     println!("\nThe failure mode: 26/38 would have silently entered memory as a second");

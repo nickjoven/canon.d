@@ -39,17 +39,33 @@ pub struct CostReport {
 /// Compute the report. `all_facts` is the full known node set (coverage
 /// denominator; clamped to ≥ certain). `generators` are the program terms whose
 /// description length is the boundary cost.
-pub fn cost_report(closure: &Closure, all_facts: &BTreeSet<String>, generators: &[&Value]) -> CostReport {
+pub fn cost_report(
+    closure: &Closure,
+    all_facts: &BTreeSet<String>,
+    generators: &[&Value],
+) -> CostReport {
     let certain = closure.certain().len();
     let total_facts = all_facts.len().max(certain);
-    let locked_fraction = if total_facts == 0 { 1.0 } else { certain as f64 / total_facts as f64 };
+    let locked_fraction = if total_facts == 0 {
+        1.0
+    } else {
+        certain as f64 / total_facts as f64
+    };
 
     let generator_mdl: usize = generators.iter().map(|g| mdl(g)).sum();
     let total_reach: usize = closure.certain().iter().map(|c| closure.reach(c)).sum();
     let pending = closure.pending();
 
-    let compression = if generator_mdl == 0 { 0.0 } else { certain as f64 / generator_mdl as f64 };
-    let cost_per_fact = if certain == 0 { 0.0 } else { total_reach as f64 / certain as f64 };
+    let compression = if generator_mdl == 0 {
+        0.0
+    } else {
+        certain as f64 / generator_mdl as f64
+    };
+    let cost_per_fact = if certain == 0 {
+        0.0
+    } else {
+        total_reach as f64 / certain as f64
+    };
 
     CostReport {
         certain,
@@ -124,10 +140,28 @@ mod tests {
         let r = cost_report(&c, &set(&["a", "P", "Q", "R"]), &[&gen]);
 
         // generous budget passes
-        assert_eq!(r.check(&Budget { min_locked: 0.5, max_cost_per_fact: 100.0 }), GateOutcome::Pass);
+        assert_eq!(
+            r.check(&Budget {
+                min_locked: 0.5,
+                max_cost_per_fact: 100.0
+            }),
+            GateOutcome::Pass
+        );
         // demanding coverage fails (we're at 0.75)
-        assert_eq!(r.check(&Budget { min_locked: 0.9, max_cost_per_fact: 100.0 }), GateOutcome::Fail);
+        assert_eq!(
+            r.check(&Budget {
+                min_locked: 0.9,
+                max_cost_per_fact: 100.0
+            }),
+            GateOutcome::Fail
+        );
         // tight cost ceiling fails
-        assert_eq!(r.check(&Budget { min_locked: 0.5, max_cost_per_fact: 0.5 }), GateOutcome::Fail);
+        assert_eq!(
+            r.check(&Budget {
+                min_locked: 0.5,
+                max_cost_per_fact: 0.5
+            }),
+            GateOutcome::Fail
+        );
     }
 }
