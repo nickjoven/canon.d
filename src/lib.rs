@@ -32,6 +32,7 @@ pub mod cross_topology;
 pub mod domain;
 pub mod gate;
 pub mod generator;
+pub mod intake;
 pub mod mapping;
 pub mod quantum;
 pub mod reconcile;
@@ -57,6 +58,12 @@ pub use cost::{cost_report, Budget, CostReport};
 // `alignment::Candidate`); reach it via `canon_d::gate::Candidate`.
 pub use gate::{dedup_gate, reconcile_gate, DedupReport, Disposition, GateOutcome, ReconcileReport};
 pub use crypto::{signing_key, verify_vouch, vouch, Vouch};
+// note: `intake::Structurer` and route types are *not* re-exported at the root
+// (`Structurer` would shadow easily in downstream glob imports); reach them via
+// `canon_d::intake::{Structurer, LineageRoute, ReferenceRoute, RatioRoute}`.
+pub use intake::{
+    corpus_graph, intake, intake_corpus, CorpusReport, IntakeConfig, IntakeError, IntakeReport,
+};
 pub use lineage::{lineage_closure, lineage_to_annotations, parse_lineage, TypedEdge};
 pub use log::{LogEntry, TransparencyLog};
 pub use propagation::{calibrate_floor, floor_for_budget, levels, propagate, reach, Calibration};
