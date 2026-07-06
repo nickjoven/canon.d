@@ -37,6 +37,8 @@ pub mod quantum;
 pub mod reconcile;
 mod schema;
 pub mod strata;
+#[cfg(feature = "prose")]
+pub mod structurer;
 pub mod subsume;
 mod topology;
 
@@ -46,6 +48,8 @@ pub use bridge::{
     structuring_schema, utterance_schema,
 };
 pub use canon::{Canon, CanonError};
+#[cfg(feature = "prose")]
+pub use structurer::{extract, structure_span, Extraction, SpanStructuring, SubjectLexicon};
 pub use bundle::{export, import, Bundle, BundleEntry, BundleError, Loaded, Rule, SchemaKind};
 pub use chain::{audit_anchor, consensus_root, verify_regeneration, AnchorAudit};
 pub use closure::Closure;
