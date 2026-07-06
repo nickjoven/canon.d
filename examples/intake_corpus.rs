@@ -4,21 +4,24 @@
 //!   cargo run --example intake_corpus --features prose -- <dir>   # any .md corpus
 //!
 //! `beats_grep` proved the substrate can *judge* a value — but it hand-scoped the
-//! subject (a human told canon.d that `13/19` is Ω_Λ). This removes that hand:
-//! the deterministic structurer route (`urtext-regex-v1`) reads every line of the
-//! corpus, lifts each exact rational with urtext, and attributes it to a subject
-//! from a declared lexicon — sealing each judgment as a supersedable structuring
-//! quantum. What it *cannot* attribute goes to `needs_review`, a visible coverage
-//! gap, never a guess (INTAKE.md's W1 answer).
+//! subject (a human told canon.d that `13/19` is Ω_Λ). This removes that hand and
+//! runs the full Unit 2 intake:
 //!
-//! It reports Unit 2's telemetry over the real files:
-//!   * lines scanned / values lifted
-//!   * values auto-attributed vs. needs_review (utterance_coverage)
-//!   * distinct propositions after dedup, and the top corroborated ones
-//!     (corroboration_distribution) — the same value spelled many ways,
-//!     collapsed to one address automatically.
+//!   * **two independent structurer routes** (prefix `Ω_Λ = 13/19` and postfix
+//!     `13/19 = Ω_Λ`) read every line, lift each exact rational with urtext, and
+//!     attribute it to a subject from a declared lexicon — sealing each judgment
+//!     as a supersedable structuring quantum;
+//!   * the **cross-audit** groups the routes' proposals by proposition, and the
+//!     **domain witness** (`Ω_Λ ∈ (0,1)`) promotes the in-domain facts while
+//!     queuing the `Ω_Λ = 12`-style residual for review — a value law, not a
+//!     corpus label;
+//!   * what no route could attribute goes to `needs_review`, a visible coverage
+//!     gap, never a guess (INTAKE.md's W1 answer).
 //!
-//! Needs `--features prose` (the structurer route is the urtext bridge).
+//! It reports Unit 2's telemetry over the real files: coverage, promoted vs.
+//! queued, and each promoted fact's corroboration and the routes that agreed.
+//!
+//! Needs `--features prose` (the structurer routes are the urtext bridge).
 
 #[cfg(not(feature = "prose"))]
 fn main() {
@@ -35,11 +38,13 @@ fn main() {
 
 #[cfg(feature = "prose")]
 mod real {
-    use std::collections::BTreeMap;
     use std::fs;
     use std::path::Path;
 
-    use canon_d::{structure_span, SubjectLexicon};
+    use canon_d::{
+        cross_audit_routes, structure_span_with, PromotionPolicy, Route, SubjectDomains,
+        SubjectLexicon,
+    };
 
     const DEFAULT_CORPUS: &str = "/home/nick/code/harmonics/sync_cost/derivations";
 
@@ -58,8 +63,8 @@ mod real {
         let mut values_lifted = 0usize;
         let mut attributed = 0usize;
         let mut needs_review = 0usize;
-        // proposition CID → (subject/value label, distinct utterance count).
-        let mut props: BTreeMap<String, (String, usize)> = BTreeMap::new();
+        // Every sealed structuring from BOTH routes, fed to the cross-audit.
+        let mut structurings = Vec::new();
         let mut review_samples: Vec<String> = Vec::new();
 
         for path in &files {
@@ -69,73 +74,79 @@ mod real {
                     continue;
                 }
                 lines_scanned += 1;
-                let Ok(s) = structure_span(line, "en", &lex) else { continue };
-                for st in &s.structured {
-                    attributed += 1;
-                    values_lifted += 1;
-                    let subject = st
-                        .claim
-                        .field("subject")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("?");
-                    let value =
-                        st.claim.field("value").and_then(|v| v.as_str()).unwrap_or("?");
-                    let entry = props
-                        .entry(st.claim.cid.clone())
-                        .or_insert_with(|| (format!("{subject} = {value}"), 0));
-                    entry.1 += 1;
-                }
-                for ex in &s.needs_review {
-                    needs_review += 1;
-                    values_lifted += 1;
-                    if review_samples.len() < 8 {
-                        review_samples.push(format!("{}  ({})", ex.value, line.trim()));
+                // Two independent routes read each line; where they agree, the
+                // cross-audit will see the corroboration.
+                for route in [Route::Prefix, Route::Postfix] {
+                    let Ok(s) = structure_span_with(line, "en", &lex, route) else { continue };
+                    attributed += s.structured.len();
+                    values_lifted += s.structured.len() + s.needs_review.len();
+                    structurings.extend(s.structured);
+                    for ex in &s.needs_review {
+                        needs_review += 1;
+                        if route == Route::Prefix && review_samples.len() < 8 {
+                            review_samples.push(format!("{}  ({})", ex.value, line.trim()));
+                        }
                     }
                 }
             }
         }
 
+        // Unit 2 proper: cross-audit the two routes and apply the domain witness.
+        let report = cross_audit_routes(
+            &structurings,
+            &SubjectDomains::harmonics(),
+            &PromotionPolicy::default(),
+        );
+
         println!("corpus: {} markdown files under {dir}\n", files.len());
-        println!("── automated structuring (route: urtext-regex-v1, no hand-scoping) ──");
+        println!("── automated structuring — 2 routes (prefix + postfix), no hand-scoping ──");
         println!("  lines scanned         : {lines_scanned}");
-        println!("  exact rationals lifted: {values_lifted}");
+        println!("  exact rationals lifted: {values_lifted}  (across both routes)");
         println!(
-            "  auto-attributed       : {attributed}  ({:.0}% of lifted)",
+            "  auto-attributed       : {attributed}  ({:.1}% of lifted)",
             pct(attributed, values_lifted)
         );
         println!(
-            "  → needs_review        : {needs_review}  ({:.0}% — a visible gap, not a guess)",
+            "  → needs_review        : {needs_review}  ({:.1}% — a visible gap, not a guess)",
             pct(needs_review, values_lifted)
         );
-        println!("  distinct propositions : {}", props.len());
 
-        // Corroboration: one proposition, many spellings/lines → one address.
-        let mut ranked: Vec<_> = props.values().collect();
-        ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        println!("\n── corroboration_distribution (top auto-structured propositions) ──");
-        for (label, count) in ranked.iter().take(6) {
-            println!("  {count:>4}× corroborated   {label}");
+        println!("\n── cross-audit: domain witness (Ω_Λ ∈ (0,1)) + corroboration ──");
+        println!("  distinct propositions : {}", report.considered());
+        println!("  PROMOTED (in-domain)  : {}", report.promoted.len());
+        println!("  QUEUED   (needs human): {}", report.queued.len());
+
+        println!("\n── promoted facts (corroboration × routes) ──");
+        for p in report.promoted.iter().take(6) {
+            println!(
+                "  {:>4}×  {} = {}   [routes: {}]",
+                p.corroboration,
+                p.subject,
+                p.value,
+                p.routes.len()
+            );
+        }
+
+        if !report.queued.is_empty() {
+            println!("\n── queued by the domain witness (the residual, now caught) ──");
+            for q in report.queued.iter().take(6) {
+                println!("  {:>4}×  {} = {}   — {}", q.corroboration, q.subject, q.value, q.reason);
+            }
         }
 
         if !review_samples.is_empty() {
             println!("\n── needs_review sample (unattributed — the honest backlog) ──");
-            for s in review_samples.iter().take(6) {
-                let s = if s.len() > 76 { &s[..76] } else { s };
+            for s in review_samples.iter().take(5) {
+                let s: String = s.chars().take(74).collect();
                 println!("  {s}");
             }
         }
 
         println!("\n=== what changed since beats_grep ===");
-        println!(
-            "beats_grep: a human told canon.d that 13/19 is Ω_Λ (one hand-scoped fact)."
-        );
-        println!(
-            "here: the structurer attributed every Ω_Λ value across {} files itself,",
-            files.len()
-        );
-        println!(
-            "sealed each as a supersedable proposal, and made every miss a visible gap."
-        );
+        println!("beats_grep: a human told canon.d that 13/19 is Ω_Λ (one hand-scoped fact).");
+        println!("here: two independent routes attributed Ω_Λ across {} files themselves,", files.len());
+        println!("the domain witness caught the Ω_Λ = 12 residual, and every promoted fact");
+        println!("carries its corroboration and the routes that agreed — nothing anonymous.");
     }
 
     fn pct(n: usize, d: usize) -> f64 {

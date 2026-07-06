@@ -38,6 +38,8 @@ pub mod reconcile;
 mod schema;
 pub mod strata;
 #[cfg(feature = "prose")]
+pub mod intake;
+#[cfg(feature = "prose")]
 pub mod structurer;
 pub mod subsume;
 mod topology;
@@ -49,7 +51,15 @@ pub use bridge::{
 };
 pub use canon::{Canon, CanonError};
 #[cfg(feature = "prose")]
-pub use structurer::{extract, structure_span, Extraction, SpanStructuring, SubjectLexicon};
+pub use intake::{
+    cross_audit_routes, CrossAuditReport, DomainRange, Plausibility, PromotionPolicy, Promoted,
+    Queued, SubjectDomains,
+};
+#[cfg(feature = "prose")]
+pub use structurer::{
+    extract, extract_with, structure_span, structure_span_with, Extraction, Route,
+    SpanStructuring, SubjectLexicon,
+};
 pub use bundle::{export, import, Bundle, BundleEntry, BundleError, Loaded, Rule, SchemaKind};
 pub use chain::{audit_anchor, consensus_root, verify_regeneration, AnchorAudit};
 pub use closure::Closure;

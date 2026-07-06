@@ -34,11 +34,6 @@ use crate::strata::proposition_schema;
 use serde_json::json;
 use urtext::{regions, to_rational, RegionKind};
 
-/// The annotator identity this route seals its structurings under. Stable, so a
-/// re-run supersedes its own prior structuring (identity = `(utterance,
-/// annotator)`) rather than forking a second opinion.
-pub const ROUTE: &str = "urtext-regex-v1";
-
 /// Canonical subject ← the surface forms a corpus uses to name it.
 ///
 /// Attribution is deliberately a *lexicon*, not a model: the forms are declared,
@@ -115,6 +110,53 @@ impl SubjectLexicon {
         }
         best.map(|(_, _, s)| s.to_string())
     }
+
+    /// The subject a `Prose` region binds to the value that immediately
+    /// *precedes* it — the mirror of [`binding_subject`](Self::binding_subject),
+    /// for the postfix route ("13/19 = Ω_Λ", "13/19 (dark energy)"). A cue binds
+    /// only when the text from the region start up to the cue is a pure connector,
+    /// so the value genuinely leads into the name. First-cue wins (nearest the
+    /// value); ties break toward the longer cue.
+    fn binding_subject_leading(&self, prose: &str) -> Option<String> {
+        let hay = prose.to_lowercase();
+        let mut best: Option<(usize, usize, &str)> = None; // (start, len, subject)
+        for (subject, cue) in &self.entries {
+            let Some(pos) = hay.find(cue.as_str()) else { continue };
+            if !is_connector(&hay[..pos]) {
+                continue; // cue present but not adjacent to the value — no bind
+            }
+            let better = match best {
+                None => true,
+                Some((bs, bl, _)) => pos < bs || (pos == bs && cue.len() > bl),
+            };
+            if better {
+                best = Some((pos, cue.len(), subject));
+            }
+        }
+        best.map(|(_, _, s)| s.to_string())
+    }
+}
+
+/// Which surface direction a route reads the cue relative to the value. Two
+/// *independent* deterministic readings of the same corpus — where they agree,
+/// they corroborate; where only one fires, the [cross-audit](crate::intake) keeps
+/// the fact provisional. Prefix is "Ω_Λ = 13/19"; postfix is "13/19 = Ω_Λ".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// Cue precedes the value: `Ω_Λ = 13/19`.
+    Prefix,
+    /// Value precedes the cue: `13/19 = Ω_Λ`, `13/19 (dark energy)`.
+    Postfix,
+}
+
+impl Route {
+    /// The stable annotator identity this direction seals under.
+    pub fn annotator(self) -> &'static str {
+        match self {
+            Route::Prefix => "urtext-regex-prefix-v1",
+            Route::Postfix => "urtext-regex-postfix-v1",
+        }
+    }
 }
 
 /// True when `tail` (the text between a subject cue and the value) is *only* a
@@ -150,15 +192,23 @@ pub struct Extraction {
     pub spelling: String,
 }
 
-/// Lift every exact rational from `span` and attribute each to a subject.
-///
-/// Walks urtext regions in order, carrying the most recent subject cue forward:
-/// a `Prose` region updates the current subject when it contains a lexicon cue; a
-/// `Number` region that lifts to an exact rational is emitted as an [`Extraction`]
-/// bound to that current subject. Deterministic and pure — same span, same
-/// lexicon, same output. `Quantity` regions (unit-bearing) are out of scope for
-/// this route (units are a separate F3 unit) and are skipped.
+/// Lift every exact rational from `span` and attribute each via the **prefix**
+/// route (`Ω_Λ = 13/19`). Equivalent to [`extract_with`] with [`Route::Prefix`];
+/// kept as the ergonomic default.
 pub fn extract(span: &str, lex: &SubjectLexicon) -> Vec<Extraction> {
+    extract_with(span, lex, Route::Prefix)
+}
+
+/// Lift every exact rational from `span` and attribute each to a subject, reading
+/// the cue in the given [`Route`]'s direction.
+///
+/// Walks urtext regions in order; a `Number` region that lifts to an exact
+/// rational is emitted as an [`Extraction`], attributed to the adjacent cue (if
+/// any) on the route's side — the preceding prose for [`Route::Prefix`], the
+/// following prose for [`Route::Postfix`]. Attribution is adjacency-gated and
+/// consumed once, so a cue never captures a non-adjacent value. Deterministic and
+/// pure. `Quantity` regions (unit-bearing) are out of scope and break adjacency.
+pub fn extract_with(span: &str, lex: &SubjectLexicon, route: Route) -> Vec<Extraction> {
     // urtext needs a trailing newline to close the final region; add one if the
     // caller's span lacks it (harmless — it only affects region termination).
     let owned;
@@ -168,35 +218,74 @@ pub fn extract(span: &str, lex: &SubjectLexicon) -> Vec<Extraction> {
         owned = format!("{span}\n");
         &owned
     };
+    match route {
+        Route::Prefix => extract_prefix(input, lex),
+        Route::Postfix => extract_postfix(input, lex),
+    }
+}
 
-    // `pending` is the subject the *immediately preceding* prose region licensed
-    // for the very next value — consumed once. A cue does not persist across a
-    // line; each value must be introduced by its own adjacent cue, or it is
-    // unattributed. This is what makes attribution local (precision-first).
+/// Prefix walk: the cue in the *preceding* prose licenses the *next* value.
+fn extract_prefix(input: &str, lex: &SubjectLexicon) -> Vec<Extraction> {
+    // `pending` is the subject the immediately preceding prose region licensed for
+    // the very next value — consumed once. A cue does not persist across a line;
+    // each value needs its own adjacent cue or it is unattributed (precision-first).
     let mut pending: Option<String> = None;
     let mut out = Vec::new();
     for region in regions(input) {
         match region.kind {
-            RegionKind::Prose => {
-                pending = lex.binding_subject(&region.text);
-            }
-            RegionKind::Number => {
-                if let Some(rat) = to_rational(&region) {
-                    out.push(Extraction {
-                        subject: pending.take(),
-                        num: rat.numerator(),
-                        den: rat.denominator(),
-                        value: rat.reduced_string(),
-                        spelling: region.text.clone(),
-                    });
-                } else {
-                    pending = None; // a non-lifting number still breaks adjacency
-                }
-            }
+            RegionKind::Prose => pending = lex.binding_subject(&region.text),
+            RegionKind::Number => match to_rational(&region) {
+                Some(rat) => out.push(rat_extraction(pending.take(), &rat, &region.text)),
+                None => pending = None, // a non-lifting number still breaks adjacency
+            },
             _ => pending = None, // any other region (Quantity, math) breaks adjacency
         }
     }
     out
+}
+
+/// Postfix walk: a value binds to the cue in the *following* prose. The mirror of
+/// [`extract_prefix`] — a value is held until the next region decides it.
+fn extract_postfix(input: &str, lex: &SubjectLexicon) -> Vec<Extraction> {
+    let mut held: Option<Extraction> = None;
+    let mut out = Vec::new();
+    for region in regions(input) {
+        match region.kind {
+            RegionKind::Number => {
+                if let Some(prev) = held.take() {
+                    out.push(prev); // no cue followed the previous value → unattributed
+                }
+                if let Some(rat) = to_rational(&region) {
+                    held = Some(rat_extraction(None, &rat, &region.text));
+                }
+            }
+            RegionKind::Prose => {
+                if let Some(mut ex) = held.take() {
+                    ex.subject = lex.binding_subject_leading(&region.text);
+                    out.push(ex);
+                }
+            }
+            _ => {
+                if let Some(prev) = held.take() {
+                    out.push(prev);
+                }
+            }
+        }
+    }
+    if let Some(prev) = held.take() {
+        out.push(prev); // a value ending the span, with nothing after to name it
+    }
+    out
+}
+
+fn rat_extraction(subject: Option<String>, rat: &urtext::Rat, spelling: &str) -> Extraction {
+    Extraction {
+        subject,
+        num: rat.numerator(),
+        den: rat.denominator(),
+        value: rat.reduced_string(),
+        spelling: spelling.to_string(),
+    }
 }
 
 /// The full result of structuring one span: the sealed structurings for every
@@ -212,22 +301,34 @@ pub struct SpanStructuring {
     pub needs_review: Vec<Extraction>,
 }
 
-/// Run the deterministic route over one prose span: extract, then seal each
-/// *attributed* value as a proposition + structuring proposal, collecting the
-/// unattributed remainder as `needs_review`.
-///
-/// The span is the utterance (sealed once per structuring, canonical-content
-/// addressed via the `prose` bridge). Each attributed value becomes a
-/// `proposition_schema` claim `(subject, num, den, value)` linked to that
-/// utterance by a structuring quantum attributed to [`ROUTE`]. The prose→structure
-/// judgment is thereby recorded and supersedable, never ambient.
+/// Run the **prefix** route over one span. Equivalent to [`structure_span_with`]
+/// with [`Route::Prefix`]; the ergonomic default.
 pub fn structure_span(
     span: &str,
     lang: &str,
     lex: &SubjectLexicon,
 ) -> Result<SpanStructuring, QuantumError> {
+    structure_span_with(span, lang, lex, Route::Prefix)
+}
+
+/// Run one deterministic route over a span: extract, then seal each *attributed*
+/// value as a proposition + structuring proposal, collecting the unattributed
+/// remainder as `needs_review`.
+///
+/// The span is the utterance (sealed once, canonical-content addressed via the
+/// `prose` bridge). Each attributed value becomes a `proposition_schema` claim
+/// `(subject, num, den, value)` linked to that utterance by a structuring quantum
+/// attributed to the route's [`annotator`](Route::annotator) — so two routes'
+/// readings are distinguishable and cross-auditable, and a re-run of one route
+/// supersedes its own prior structuring rather than forking.
+pub fn structure_span_with(
+    span: &str,
+    lang: &str,
+    lex: &SubjectLexicon,
+    route: Route,
+) -> Result<SpanStructuring, QuantumError> {
     let mut result = SpanStructuring::default();
-    for ex in extract(span, lex) {
+    for ex in extract_with(span, lex, route) {
         match &ex.subject {
             Some(subject) => {
                 let claim = json!({
@@ -236,7 +337,7 @@ pub fn structure_span(
                     "den": ex.den,
                     "value": ex.value,
                 });
-                let s = structure(span, lang, ROUTE, &proposition_schema(), &claim)?;
+                let s = structure(span, lang, route.annotator(), &proposition_schema(), &claim)?;
                 result.structured.push(s);
             }
             None => result.needs_review.push(ex),
@@ -321,6 +422,41 @@ mod tests {
     fn structuring_is_attributed_to_the_route() {
         let r = structure_span("Ω_Λ = 13/19", "en", &lex()).unwrap();
         let annot = r.structured[0].structuring.field("annotator").unwrap();
-        assert_eq!(annot.as_str(), Some(ROUTE));
+        assert_eq!(annot.as_str(), Some(Route::Prefix.annotator()));
+    }
+
+    #[test]
+    fn postfix_route_reads_the_mirror_form() {
+        // "13/19 = Ω_Λ" and "13/19 (dark energy)" — value first, cue after.
+        for span in ["13/19 = Ω_Λ", "13/19 (dark energy)"] {
+            let ex = extract_with(span, &lex(), Route::Postfix);
+            assert_eq!(ex.len(), 1, "one value in {span:?}");
+            assert_eq!(ex[0].subject.as_deref(), Some("omega_lambda"), "in {span:?}");
+            assert_eq!(ex[0].value, "13/19");
+        }
+    }
+
+    #[test]
+    fn each_route_fires_only_on_its_own_direction() {
+        // The prefix form is invisible to the postfix route and vice-versa — the
+        // two are genuinely independent, so agreement between them is meaningful.
+        let prefix_form = "Ω_Λ = 13/19";
+        assert!(extract_with(prefix_form, &lex(), Route::Prefix)[0].subject.is_some());
+        assert!(extract_with(prefix_form, &lex(), Route::Postfix)[0].subject.is_none());
+
+        let postfix_form = "13/19 = Ω_Λ";
+        assert!(extract_with(postfix_form, &lex(), Route::Postfix)[0].subject.is_some());
+        assert!(extract_with(postfix_form, &lex(), Route::Prefix)[0].subject.is_none());
+    }
+
+    #[test]
+    fn both_routes_seal_the_same_proposition_cid() {
+        // Independent routes reading the same value → one proposition → the CID a
+        // cross-audit corroborates across routes.
+        let p = structure_span_with("Ω_Λ = 13/19", "en", &lex(), Route::Prefix).unwrap();
+        let q = structure_span_with("13/19 = Ω_Λ", "en", &lex(), Route::Postfix).unwrap();
+        assert_eq!(p.structured[0].claim.cid, q.structured[0].claim.cid);
+        // ...but the structuring proposals are distinct (different annotators).
+        assert_ne!(p.structured[0].structuring.cid, q.structured[0].structuring.cid);
     }
 }
