@@ -39,6 +39,14 @@ pub mod quantum;
 pub mod reconcile;
 mod schema;
 pub mod strata;
+// Unit 2 (route promotion + deterministic prose routes) rides the urtext wire,
+// so both stay behind the `prose` feature. `promote` was born as a second
+// `intake.rs` on quantum-tier in parallel with the Unit 1 spine; renamed at
+// merge — the spine owns `intake`, the audit/promotion stage is `promote`.
+#[cfg(feature = "prose")]
+pub mod promote;
+#[cfg(feature = "prose")]
+pub mod structurer;
 pub mod subsume;
 mod topology;
 
@@ -55,6 +63,16 @@ pub use constitution::{
     builtin_laws, schema_schema, seal_constitution, seal_schema, Article, Constitution, Treaty,
 };
 pub use cost::{cost_report, Budget, CostReport};
+#[cfg(feature = "prose")]
+pub use promote::{
+    cross_audit_routes, CrossAuditReport, DomainRange, Plausibility, Promoted, PromotionPolicy,
+    Queued, SubjectDomains,
+};
+#[cfg(feature = "prose")]
+pub use structurer::{
+    extract, extract_with, structure_span, structure_span_with, Extraction, Route, SpanStructuring,
+    SubjectLexicon,
+};
 // note: `gate::Candidate` is *not* re-exported at the root (name clashes with
 // `alignment::Candidate`); reach it via `canon_d::gate::Candidate`.
 pub use crypto::{signing_key, verify_vouch, vouch, Vouch};
