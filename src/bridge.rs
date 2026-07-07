@@ -90,18 +90,72 @@ fn canonicalize_utterance(text: &str) -> String {
     }
 }
 
-/// Seal a natural-language utterance at the content-addressed utterance stratum.
+/// Which noise quotient binds an utterance's identity. The choice belongs to
+/// the *domain pack*, not the build (DOMAINS.md, finding F2): prose collapses
+/// the N1–N9 formatting-noise classes, but a code or data corpus has a
+/// different noise structure, and running the prose quotient over it destroys
+/// exactly the bytes its structure lives in — the code pack's self-host test
+/// caught this live under `--features prose`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Canonicalizer {
+    /// The build's text canonicalizer: `urtext::normalize` with the `prose`
+    /// feature, byte-identity without it.
+    #[default]
+    Text,
+    /// Byte-identity regardless of build features — for corpora whose noise
+    /// quotient is not prose (source code, data files).
+    Identity,
+}
+
+impl Canonicalizer {
+    /// The mode label pinned into reports: which function actually bound CIDs.
+    pub fn mode(self) -> &'static str {
+        match self {
+            Canonicalizer::Identity => "identity",
+            Canonicalizer::Text => {
+                if cfg!(feature = "prose") {
+                    "urtext"
+                } else {
+                    "identity"
+                }
+            }
+        }
+    }
+
+    /// Apply the quotient: raw bytes → identity-binding bytes.
+    pub fn apply(self, text: &str) -> String {
+        match self {
+            Canonicalizer::Identity => text.to_string(),
+            Canonicalizer::Text => canonicalize_utterance(text),
+        }
+    }
+}
+
+/// Seal a natural-language utterance at the content-addressed utterance stratum
+/// under the prose quotient ([`Canonicalizer::Text`]). See
+/// [`seal_utterance_with`] for the pack-selected general form.
+pub fn seal_utterance(text: &str, lang: &str, author: &str) -> Result<Quantum, QuantumError> {
+    seal_utterance_with(Canonicalizer::Text, text, lang, author)
+}
+
+/// Seal an utterance under an explicit noise quotient.
 ///
 /// The CID is `blake3(schema ‖ (canonical_text, lang))`, where `canonical_text`
-/// is [`canonicalize_utterance`] of `text`; the raw bytes are kept in the `raw`
-/// projection. Two reformattings of one content seal to one CID (with `prose`);
-/// a paraphrase does not. This is the entry ticket of INTAKE.md §1 — prose
-/// becomes content-addressed ground before any interpretation.
-pub fn seal_utterance(text: &str, lang: &str, author: &str) -> Result<Quantum, QuantumError> {
+/// is `canon.apply(text)`; the raw bytes are kept in the `raw` projection. Two
+/// reformattings of one content seal to one CID (prose quotient with the
+/// `prose` feature); a paraphrase does not. This is the entry ticket of
+/// INTAKE.md §1 — content becomes content-addressed ground before any
+/// interpretation.
+pub fn seal_utterance_with(
+    canon: Canonicalizer,
+    text: &str,
+    lang: &str,
+    author: &str,
+) -> Result<Quantum, QuantumError> {
     Quantum::seal(
         &utterance_schema(),
         &json!({
-            "text": canonicalize_utterance(text),
+            "text": canon.apply(text),
             "lang": lang,
             "raw": text,
             "author": author,

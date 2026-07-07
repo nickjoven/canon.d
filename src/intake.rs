@@ -30,7 +30,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::bridge::seal_utterance;
+use crate::bridge::{seal_utterance_with, Canonicalizer};
 use crate::generator::Rat;
 use crate::lineage::{lineage_to_annotations, parse_lineage, TypedEdge};
 use crate::quantum::{cross_audit, CrossAuditConflict, Quantum, QuantumError};
@@ -48,13 +48,16 @@ pub enum IntakeError {
 
 /// Intake configuration. `corpus_ids` is the known-document set that lineage
 /// targets and references resolve against; `falsified` is the negative-results
-/// set of proposition CIDs whose re-assertion is blocked at the gate.
+/// set of proposition CIDs whose re-assertion is blocked at the gate;
+/// `canonicalizer` is the domain pack's noise quotient (prose collapses
+/// formatting noise; code and data corpora need byte-identity — DOMAINS.md F2).
 #[derive(Debug, Clone, Default)]
 pub struct IntakeConfig {
     pub annotator: String,
     pub lang: String,
     pub corpus_ids: BTreeSet<String>,
     pub falsified: BTreeSet<String>,
+    pub canonicalizer: Canonicalizer,
 }
 
 impl IntakeConfig {
@@ -64,6 +67,7 @@ impl IntakeConfig {
             lang: "en".to_string(),
             corpus_ids: BTreeSet::new(),
             falsified: BTreeSet::new(),
+            canonicalizer: Canonicalizer::Text,
         }
     }
 }
@@ -352,27 +356,40 @@ impl IntakeReport {
     }
 }
 
-fn canonicalizer_mode() -> &'static str {
-    if cfg!(feature = "prose") {
-        "urtext"
-    } else {
-        "identity"
-    }
-}
-
 // ---------------------------------------------------------------------------
 // the spine
 // ---------------------------------------------------------------------------
 
-/// Intake one document. See the module doc for the pipeline; the invariant to
-/// hold onto: **every proposal lands in exactly one report bucket**, and the
-/// report is a pure function of `(doc_id, raw_text, cfg)`.
+/// The prose (harmonics) route roster: `## Lineage` typed edges, corpus-id
+/// citations, strict `subject = num/den` ratio claims. This is a *domain
+/// pack* (DOMAINS.md), not the spine — the spine takes whatever routes the
+/// caller composes.
+pub fn prose_routes() -> [&'static dyn Structurer; 3] {
+    [&LineageRoute, &ReferenceRoute, &RatioRoute]
+}
+
+/// Intake one document with the prose pack ([`prose_routes`]). See
+/// [`intake_with_routes`] for the domain-generic spine.
 pub fn intake(
     doc_id: &str,
     raw_text: &str,
     cfg: &IntakeConfig,
 ) -> Result<IntakeReport, IntakeError> {
-    let utterance = seal_utterance(raw_text, &cfg.lang, &cfg.annotator)?;
+    intake_with_routes(doc_id, raw_text, cfg, &prose_routes())
+}
+
+/// Intake one document through an explicit route roster. See the module doc
+/// for the pipeline; the invariant to hold onto: **every proposal lands in
+/// exactly one report bucket**, and the report is a pure function of
+/// `(doc_id, raw_text, cfg, routes)`. The spine itself is domain-free —
+/// everything domain-flavored arrives through `routes` (DOMAINS.md).
+pub fn intake_with_routes(
+    doc_id: &str,
+    raw_text: &str,
+    cfg: &IntakeConfig,
+    routes: &[&dyn Structurer],
+) -> Result<IntakeReport, IntakeError> {
+    let utterance = seal_utterance_with(cfg.canonicalizer, raw_text, &cfg.lang, &cfg.annotator)?;
     // Structure the *canonical* text — the substrate's form, not the wire form.
     let canonical = utterance
         .field("text")
@@ -380,9 +397,8 @@ pub fn intake(
         .unwrap_or(raw_text)
         .to_string();
 
-    let routes: [&dyn Structurer; 3] = [&LineageRoute, &ReferenceRoute, &RatioRoute];
     let mut merged = StructuringOutput::default();
-    for r in &routes {
+    for r in routes {
         let o = r.structure(doc_id, &canonical, &cfg.corpus_ids);
         merged.typed_edges.extend(o.typed_edges);
         merged.references.extend(o.references);
@@ -469,7 +485,7 @@ pub fn intake(
     Ok(IntakeReport {
         doc_id: doc_id.to_string(),
         utterance_cid: utterance.cid,
-        canonicalizer: canonicalizer_mode(),
+        canonicalizer: cfg.canonicalizer.mode(),
         edges,
         references,
         propositions,
@@ -521,13 +537,24 @@ impl CorpusReport {
     }
 }
 
-/// Intake a whole corpus. `docs` is `(doc_id, raw_text)`; the corpus id set is
-/// the docs' own ids plus `cfg.corpus_ids` (so edges may resolve to documents
-/// already in the substrate but not in this batch). Deterministic: docs are
-/// processed in sorted id order regardless of input order.
+/// Intake a whole corpus with the prose pack. See
+/// [`intake_corpus_with_routes`] for the domain-generic spine.
 pub fn intake_corpus(
     docs: &[(String, String)],
     cfg: &IntakeConfig,
+) -> Result<CorpusReport, IntakeError> {
+    intake_corpus_with_routes(docs, cfg, &prose_routes())
+}
+
+/// Intake a whole corpus through an explicit route roster. `docs` is
+/// `(doc_id, raw_text)`; the corpus id set is the docs' own ids plus
+/// `cfg.corpus_ids` (so edges may resolve to documents already in the
+/// substrate but not in this batch). Deterministic: docs are processed in
+/// sorted id order regardless of input order.
+pub fn intake_corpus_with_routes(
+    docs: &[(String, String)],
+    cfg: &IntakeConfig,
+    routes: &[&dyn Structurer],
 ) -> Result<CorpusReport, IntakeError> {
     let mut sorted: Vec<&(String, String)> = docs.iter().collect();
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
@@ -539,7 +566,7 @@ pub fn intake_corpus(
 
     let mut reports = Vec::new();
     for (id, text) in sorted {
-        reports.push(intake(id, text, &full_cfg)?);
+        reports.push(intake_with_routes(id, text, &full_cfg, routes)?);
     }
 
     // Corpus-wide cross-audit: re-seal every promoted proposition (idempotent —
@@ -672,7 +699,11 @@ pub fn corpus_graph(report: &CorpusReport, generated_by: &str) -> Value {
     json!({
         "generated": {
             "tool": "canon.d intake",
-            "canonicalizer": canonicalizer_mode(),
+            "canonicalizer": report
+                .reports
+                .first()
+                .map(|r| r.canonicalizer)
+                .unwrap_or_else(|| Canonicalizer::Text.mode()),
             "by": generated_by,
         },
         "nodes": nodes,
@@ -683,6 +714,7 @@ pub fn corpus_graph(report: &CorpusReport, generated_by: &str) -> Value {
 mod tests {
     use super::*;
     use crate::bridge::ground_audit;
+    use crate::bridge::seal_utterance;
     use crate::quantum::validate_edge_kind;
 
     fn corpus_cfg(ids: &[&str]) -> IntakeConfig {
