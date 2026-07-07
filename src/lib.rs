@@ -33,6 +33,7 @@ pub mod intake;
 pub mod lineage;
 pub mod log;
 pub mod mapping;
+pub mod packs;
 pub mod propagation;
 pub mod quantum;
 pub mod reconcile;
@@ -44,7 +45,7 @@ mod topology;
 pub use alignment::{align, candidates_to_mappings, AlignConfig, AlignRationale, Candidate};
 pub use bridge::{
     attestation_schema, ground_audit, needs_review, structure, structuring_schema,
-    utterance_schema, Structuring, Ungrounded,
+    utterance_schema, Canonicalizer, Structuring, Ungrounded,
 };
 pub use bundle::{export, import, Bundle, BundleEntry, BundleError, Loaded, Rule, SchemaKind};
 pub use canon::{Canon, CanonError};

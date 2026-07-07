@@ -3,7 +3,7 @@
 //!   cargo run --bin canon-demo -- <skip|drift|verify|all> [--json]
 //!   cargo run --bin canon-demo -- intake <file.md> [--json] [--annotator ID]
 //!   cargo run --bin canon-demo -- intake-corpus <dir> [--json] [--annotator ID]
-//!                                 [--emit-graph-json <path>]
+//!                                 [--emit-graph-json <path>] [--pack prose|code]
 //!
 //! Human-readable by default; `--json` emits one machine-readable object per
 //! command (the same numbers the web page and deck render). Exit codes follow
@@ -15,9 +15,12 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::exit;
 
+use canon_d::intake::{intake_corpus_with_routes, prose_routes, Structurer};
+use canon_d::packs::code::ImportsRoute;
+use canon_d::Canonicalizer;
 use canon_d::{
     attestation_schema, consensus_root, corpus_graph, cross_audit, dedup_gate, export,
-    gate::Candidate, import, intake, intake_corpus, project, proposition_schema, reconcile_gate,
+    gate::Candidate, import, intake, project, proposition_schema, reconcile_gate,
     seal_constitution, Bundle, BundleEntry, Claim, CrossAuditConflict, Disposition, IntakeConfig,
     IntakeReport, Memo, Quantum, Rat, RatInterval, Rule, SchemaKind, Tolerance, TransparencyLog,
 };
@@ -451,7 +454,7 @@ fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
 /// Positional arguments: everything that is neither a flag nor a value
 /// consumed by a value-taking flag. `positionals(&args)[0]` is the subcommand.
 fn positionals(args: &[String]) -> Vec<&str> {
-    const VALUE_FLAGS: [&str; 2] = ["--annotator", "--emit-graph-json"];
+    const VALUE_FLAGS: [&str; 3] = ["--annotator", "--emit-graph-json", "--pack"];
     let mut out = Vec::new();
     let mut skip = false;
     for a in args {
@@ -561,8 +564,19 @@ fn cmd_intake(args: &[String], json_out: bool) -> i32 {
 
 fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
     let Some(&dir) = positionals(args).get(1) else {
-        eprintln!("usage: canon-demo intake-corpus <dir> [--json] [--annotator ID] [--emit-graph-json <path>]");
+        eprintln!("usage: canon-demo intake-corpus <dir> [--json] [--annotator ID] [--emit-graph-json <path>] [--pack prose|code]");
         return 2;
+    };
+    // Domain pack selection (DOMAINS.md): the pack decides which files are
+    // corpus documents and which structurer routes run. The spine is shared.
+    let pack = flag_value(args, "--pack").unwrap_or("prose");
+    let (ext, routes): (&str, Vec<&dyn Structurer>) = match pack {
+        "prose" => ("md", prose_routes().to_vec()),
+        "code" => ("rs", vec![&ImportsRoute]),
+        other => {
+            eprintln!("unknown pack `{other}` (available: prose, code)");
+            return 2;
+        }
     };
     let mut docs: Vec<(String, String)> = Vec::new();
     let entries = match std::fs::read_dir(dir) {
@@ -574,7 +588,7 @@ fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
     };
     for e in entries.flatten() {
         let p = e.path();
-        if p.extension().is_some_and(|x| x == "md") {
+        if p.extension().is_some_and(|x| x == ext) {
             match std::fs::read_to_string(&p) {
                 Ok(t) => docs.push((doc_id(&p), t)),
                 Err(err) => {
@@ -585,11 +599,15 @@ fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
         }
     }
     if docs.is_empty() {
-        eprintln!("no .md documents under {dir}");
+        eprintln!("no .{ext} documents under {dir}");
         return 2;
     }
-    let cfg = IntakeConfig::new(flag_value(args, "--annotator").unwrap_or("canon-demo"));
-    let report = match intake_corpus(&docs, &cfg) {
+    let mut cfg = IntakeConfig::new(flag_value(args, "--annotator").unwrap_or("canon-demo"));
+    if pack == "code" {
+        // The code pack's noise quotient is byte-identity (DOMAINS.md F2).
+        cfg.canonicalizer = Canonicalizer::Identity;
+    }
+    let report = match intake_corpus_with_routes(&docs, &cfg, &routes) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("intake failed: {e}");
