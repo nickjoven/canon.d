@@ -88,7 +88,7 @@ pub use reconcile::{
 pub use schema::{Field, FieldKind, Schema};
 pub use strata::{
     admissible_propositions, assertion_schema, corroboration, locked_fraction, proposition_schema,
-    seal_assertion, StrataError,
+    seal_assertion, term_schema, StrataError,
 };
 pub use subsume::{entailment_edges, maximal_antichain, redundant, Claim, RatInterval};
 pub use topology::{Cluster, NodeInfo, TopologyView};

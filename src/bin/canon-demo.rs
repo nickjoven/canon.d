@@ -16,7 +16,7 @@ use std::path::Path;
 use std::process::exit;
 
 use canon_d::intake::{intake_corpus_with_routes, prose_routes, Structurer};
-use canon_d::packs::code::ImportsRoute;
+use canon_d::packs::code::{ApiRoute, DeprecatedRoute, ImportsRoute};
 use canon_d::Canonicalizer;
 use canon_d::{
     attestation_schema, consensus_root, corpus_graph, cross_audit, dedup_gate, export,
@@ -505,6 +505,13 @@ fn print_intake_report(r: &IntakeReport) {
             short(&p.assertion_cid)
         );
     }
+    if !r.terms.is_empty() {
+        println!(
+            "  terms    {} bound (e.g. {})",
+            r.terms.len(),
+            r.terms[0].term
+        );
+    }
     for b in &r.blocked {
         println!(
             "  \x1b[31mBLOCKED\x1b[0m  {} — re-asserts Falsified {}",
@@ -572,7 +579,7 @@ fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
     let pack = flag_value(args, "--pack").unwrap_or("prose");
     let (ext, routes): (&str, Vec<&dyn Structurer>) = match pack {
         "prose" => ("md", prose_routes().to_vec()),
-        "code" => ("rs", vec![&ImportsRoute]),
+        "code" => ("rs", vec![&ImportsRoute, &ApiRoute, &DeprecatedRoute]),
         other => {
             eprintln!("unknown pack `{other}` (available: prose, code)");
             return 2;
@@ -634,9 +641,10 @@ fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
             );
         }
         let t = &report.telemetry;
-        println!("\n{} docs · {} sealed · {} unstructured · {} edges · {} refs · {} propositions · review depth {} · {} blocked",
+        println!("\n{} docs · {} sealed · {} unstructured · {} edges · {} refs · {} propositions · {} terms · review depth {} · {} blocked",
             t.docs, t.utterances_sealed, t.unstructured, t.edges_promoted,
-            t.references_untyped, t.propositions, t.needs_review_depth, t.reassertion_blocks);
+            t.references_untyped, t.propositions, t.terms_bound,
+            t.needs_review_depth, t.reassertion_blocks);
     }
     report.exit_code()
 }

@@ -69,9 +69,9 @@ A pack is everything domain-flavored, in four slots:
    CI runs, trial registries). *Not yet built (INTAKE.md Unit 5).*
 
 Current packs: **prose** (`intake::prose_routes` — lineage sections,
-corpus citations, exact-rational claims) and **code**
-(`packs::code` — `use crate::…`/`mod …;` dependency citations,
-byte-identity quotient).
+corpus citations, exact-rational claims, glossary term bindings) and
+**code** (`packs::code` — dependency citations, public-API term
+census, `#[deprecated]` tombstone findings; byte-identity quotient).
 
 ## The flexibility contract
 
@@ -100,17 +100,24 @@ untouched.
   `--features prose` (intake.rs's citations collapsed from five to
   one). Fix: `bridge::Canonicalizer` — the pack picks the quotient
   per run; the report pins what actually bound the CIDs.
-- **F3 (open)** — `StructuringOutput` has no findings/terms channel:
-  routes can propose edges, citations, and ratio claims, but cannot
-  propose review items (a `#[deprecated]` tombstone route) or term
-  bindings (a public-API census, the vocab route). Blocks code-pack
-  v2 and the vocabulary layer.
-- **F4 (open)** — the proposal vocabulary is prose-flavored:
-  `RatioClaim` is a harmonics proposition type living in the core
-  output struct, and `structured`/`unstructured` telemetry reads
-  wrongly for citation-only packs (a code corpus with 67 dependency
-  citations reports 25/25 unstructured). A generalized
-  claim-with-witness type is the fix, priced together with F3.
+- **F3 (fixed)** — `StructuringOutput` had no findings/terms channel:
+  routes could propose edges, citations, and ratio claims, but not
+  review items or term bindings. Fix: `RouteFinding` (spine buckets
+  them into `needs_review` with the doc filled in) and `TermBinding`
+  (spine seals them as `term` quanta — `strata::term_schema`, identity
+  = the term string, witness = the home doc — asserted on the source
+  utterance, with a per-term corpus cross-audit surfacing duplicate
+  homes as `term_home_conflict`). Unblocked in the same change: the
+  code pack's `ApiRoute` (public-API census, qualified terms) and
+  `DeprecatedRoute` (tombstone census), and the prose pack's
+  `VocabRoute` (glossary rows → term bindings — the vocab layer's
+  first sealed stratum).
+- **F4 (open, narrowed)** — the proposal vocabulary is still partly
+  prose-flavored: `RatioClaim` is a harmonics proposition type living
+  in the core output struct (a generalized claim-with-witness type is
+  the fix), and `structured` counts promoted structure only, so a
+  citation-only corpus reads as unstructured despite real citations.
+  Narrowed by F3: term bindings now count as structure.
 
 ## Status
 

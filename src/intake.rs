@@ -34,7 +34,7 @@ use crate::bridge::{seal_utterance_with, Canonicalizer};
 use crate::generator::Rat;
 use crate::lineage::{lineage_to_annotations, parse_lineage, TypedEdge};
 use crate::quantum::{cross_audit, CrossAuditConflict, Quantum, QuantumError};
-use crate::strata::{proposition_schema, seal_assertion, StrataError};
+use crate::strata::{proposition_schema, seal_assertion, term_schema, StrataError};
 
 /// Errors that abort an intake (environment-class failures). Everything
 /// content-shaped lands in a report bucket instead.
@@ -83,14 +83,41 @@ pub struct RatioClaim {
     pub den: i64,
 }
 
+/// A route-proposed review item (DOMAINS.md F3): a route that recognizes a
+/// condition worth a human's attention — a deprecated definition, a malformed
+/// convention — proposes it here and the spine buckets it into `needs_review`
+/// with the document filled in. Same nothing-vanishes contract as every other
+/// proposal channel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RouteFinding {
+    pub kind: String,
+    pub subject: String,
+    pub detail: String,
+}
+
+/// A route-proposed vocabulary binding: `term → home` (the vocab layer's
+/// feed; DOMAINS.md F3). The spine seals accepted bindings as `term` quanta
+/// ([`crate::strata::term_schema`]) with an assertion grounded on the source
+/// utterance. The pack chooses the term string's granularity — bare names
+/// where one-canonical-home should be enforced, qualified names (`mod::Item`)
+/// where coexistence is legitimate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TermBinding {
+    pub term: String,
+    pub home: String,
+}
+
 /// One structurer route's proposals for a document. Routes are deliberately
 /// unequal: the lineage route proposes *typed* edges, the reference route
-/// proposes *untyped* citations, the ratio route proposes claims.
+/// proposes *untyped* citations, the ratio route proposes claims, and any
+/// route may propose findings (review items) or term bindings.
 #[derive(Debug, Clone, Default)]
 pub struct StructuringOutput {
     pub typed_edges: Vec<TypedEdge>,
     pub references: Vec<String>,
     pub ratios: Vec<RatioClaim>,
+    pub findings: Vec<RouteFinding>,
+    pub terms: Vec<TermBinding>,
 }
 
 /// A structurer: one route from canonical text to structure proposals. The id
@@ -163,6 +190,49 @@ impl Structurer for RatioRoute {
             ratios: extract_ratio_claims(text),
             ..Default::default()
         }
+    }
+}
+
+/// The vocab route: lift glossary table rows (`| **term** | …`) to term
+/// bindings. **Glossary-scoped by design**: it structures only documents
+/// whose id contains `glossary` — the glossary is the corpus's *declared*
+/// binding registry, while status maps and scorecards merely bold terms they
+/// use; binding from usage sites is exactly the fabrication path the vocab
+/// layer exists to close. `home` is the glossary document itself in v1: it
+/// owns the *binding*; extracting the definition's source doc from the row is
+/// a later refinement.
+pub struct VocabRoute;
+
+impl Structurer for VocabRoute {
+    fn id(&self) -> &str {
+        "vocab/v1"
+    }
+    fn structure(&self, doc_id: &str, text: &str, _corpus: &BTreeSet<String>) -> StructuringOutput {
+        let mut out = StructuringOutput::default();
+        if !doc_id.contains("glossary") {
+            return out;
+        }
+        for line in text.lines() {
+            let t = line.trim_start();
+            let Some(rest) = t.strip_prefix("| **") else {
+                continue;
+            };
+            let Some(end) = rest.find("**") else {
+                continue;
+            };
+            let term = rest[..end].trim().to_string();
+            if term.is_empty() {
+                continue;
+            }
+            let binding = TermBinding {
+                term,
+                home: doc_id.to_string(),
+            };
+            if !out.terms.contains(&binding) {
+                out.terms.push(binding);
+            }
+        }
+        out
     }
 }
 
@@ -306,8 +376,20 @@ pub struct PropositionOut {
     pub assertion_cid: String,
 }
 
-/// One human-review queue entry. `kind` is a closed vocabulary:
-/// `unresolved_lineage_target` (W4), `invalid_ratio`, `cross_audit_conflict`.
+/// A promoted term binding: term quantum + the assertion grounding it in the
+/// source utterance.
+#[derive(Debug, Clone, Serialize)]
+pub struct TermOut {
+    pub term: String,
+    pub home: String,
+    pub term_cid: String,
+    pub assertion_cid: String,
+}
+
+/// One human-review queue entry. `kind` is spine vocabulary
+/// (`unresolved_lineage_target` (W4), `invalid_ratio`,
+/// `cross_audit_conflict`, `term_home_conflict`) or a route-proposed kind
+/// ([`RouteFinding`], e.g. the code pack's `deprecated_item`).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct ReviewItem {
     pub kind: String,
@@ -337,6 +419,7 @@ pub struct IntakeReport {
     pub edges: Vec<EdgeOut>,
     pub references: Vec<String>,
     pub propositions: Vec<PropositionOut>,
+    pub terms: Vec<TermOut>,
     pub needs_review: Vec<ReviewItem>,
     pub blocked: Vec<Blocked>,
     /// Did any route produce structure? `false` is the sealed-but-unstructured
@@ -361,11 +444,11 @@ impl IntakeReport {
 // ---------------------------------------------------------------------------
 
 /// The prose (harmonics) route roster: `## Lineage` typed edges, corpus-id
-/// citations, strict `subject = num/den` ratio claims. This is a *domain
-/// pack* (DOMAINS.md), not the spine — the spine takes whatever routes the
-/// caller composes.
-pub fn prose_routes() -> [&'static dyn Structurer; 3] {
-    [&LineageRoute, &ReferenceRoute, &RatioRoute]
+/// citations, strict `subject = num/den` ratio claims, glossary term
+/// bindings. This is a *domain pack* (DOMAINS.md), not the spine — the spine
+/// takes whatever routes the caller composes.
+pub fn prose_routes() -> [&'static dyn Structurer; 4] {
+    [&LineageRoute, &ReferenceRoute, &RatioRoute, &VocabRoute]
 }
 
 /// Intake one document with the prose pack ([`prose_routes`]). See
@@ -403,10 +486,24 @@ pub fn intake_with_routes(
         merged.typed_edges.extend(o.typed_edges);
         merged.references.extend(o.references);
         merged.ratios.extend(o.ratios);
+        merged.findings.extend(o.findings);
+        merged.terms.extend(o.terms);
     }
 
     let mut needs_review: Vec<ReviewItem> = Vec::new();
     let mut blocked: Vec<Blocked> = Vec::new();
+
+    // Route findings: proposed review items pass straight through with the
+    // document filled in (the route knows the condition, the spine knows the
+    // doc).
+    for f in &merged.findings {
+        needs_review.push(ReviewItem {
+            kind: f.kind.clone(),
+            doc: doc_id.into(),
+            subject: f.subject.clone(),
+            detail: f.detail.clone(),
+        });
+    }
 
     // Typed edges: resolvable targets promote to sealed annotations; a target
     // outside the corpus is the W4 failure mode, made loud.
@@ -480,8 +577,25 @@ pub fn intake_with_routes(
         });
     }
 
+    // Term bindings: sealed as term quanta, asserted on the source utterance.
+    let mut terms: Vec<TermOut> = Vec::new();
+    let mut seen_terms: BTreeSet<(String, String)> = BTreeSet::new();
+    for b in &merged.terms {
+        if !seen_terms.insert((b.term.clone(), b.home.clone())) {
+            continue;
+        }
+        let tq = Quantum::seal(&term_schema(), &json!({"term": b.term, "home": b.home}))?;
+        let assertion = seal_assertion(&tq, &[&utterance], &cfg.annotator)?;
+        terms.push(TermOut {
+            term: b.term.clone(),
+            home: b.home.clone(),
+            term_cid: tq.cid,
+            assertion_cid: assertion.cid,
+        });
+    }
+
     needs_review.sort();
-    let structured = !edges.is_empty() || !propositions.is_empty();
+    let structured = !edges.is_empty() || !propositions.is_empty() || !terms.is_empty();
     Ok(IntakeReport {
         doc_id: doc_id.to_string(),
         utterance_cid: utterance.cid,
@@ -489,6 +603,7 @@ pub fn intake_with_routes(
         edges,
         references,
         propositions,
+        terms,
         needs_review,
         blocked,
         structured,
@@ -521,6 +636,7 @@ pub struct Telemetry {
     pub edges_promoted: usize,
     pub references_untyped: usize,
     pub propositions: usize,
+    pub terms_bound: usize,
     pub needs_review_depth: usize,
     pub reassertion_blocks: usize,
 }
@@ -597,7 +713,42 @@ pub fn intake_corpus_with_routes(
     for quanta in by_subject.values() {
         conflicts_raw.extend(cross_audit(&schema, quanta)?);
     }
+
+    // Term audit: identity is the term name alone, so one term bound to two
+    // homes is one identity CID with disagreeing witnesses — duplicate-
+    // definition detection (`term_home_conflict`). Grouped per term for the
+    // same reason propositions group per subject.
+    let tschema = term_schema();
+    let mut by_term: BTreeMap<String, Vec<Quantum>> = BTreeMap::new();
+    for r in &reports {
+        for t in &r.terms {
+            let q = Quantum::seal(&tschema, &json!({"term": t.term, "home": t.home}))?;
+            prop_doc
+                .entry(q.cid.clone())
+                .or_insert_with(|| r.doc_id.clone());
+            by_term.entry(t.term.clone()).or_default().push(q);
+        }
+    }
+    let mut term_conflicts_raw = Vec::new();
+    for quanta in by_term.values() {
+        term_conflicts_raw.extend(cross_audit(&tschema, quanta)?);
+    }
+
     let mut cross_conflicts = Vec::new();
+    for c in term_conflicts_raw {
+        if let CrossAuditConflict::WitnessDisagreement { cid, witnesses } = &c {
+            cross_conflicts.push(ReviewItem {
+                kind: "term_home_conflict".into(),
+                doc: prop_doc.get(cid).cloned().unwrap_or_default(),
+                subject: cid.clone(),
+                detail: format!(
+                    "one term, {} homes: {}",
+                    witnesses.len(),
+                    witnesses.join(", ")
+                ),
+            });
+        }
+    }
     for c in conflicts_raw {
         let (kind, subject, detail) = match &c {
             CrossAuditConflict::UnderMerge { witness, cids } => (
@@ -641,6 +792,7 @@ pub fn intake_corpus_with_routes(
         edges_promoted: reports.iter().map(|r| r.edges.len()).sum(),
         references_untyped: reports.iter().map(|r| r.references.len()).sum(),
         propositions: reports.iter().map(|r| r.propositions.len()).sum(),
+        terms_bound: reports.iter().map(|r| r.terms.len()).sum(),
         needs_review_depth: reports.iter().map(|r| r.needs_review.len()).sum::<usize>()
             + cross_conflicts.len(),
         reassertion_blocks: reports.iter().map(|r| r.blocked.len()).sum(),
@@ -716,6 +868,73 @@ mod tests {
     use crate::bridge::ground_audit;
     use crate::bridge::seal_utterance;
     use crate::quantum::validate_edge_kind;
+
+    #[test]
+    fn vocab_route_binds_glossary_rows_only() {
+        let glossary = "| **mediant** | Stern-Brocot mediant | op | `mediant_derivation.md` |\n\
+                        | --- | --- |\n\
+                        | **K_STAR** | operating coupling | val | `k_axis.md` |\n";
+        let cfg = IntakeConfig::new("t");
+        let r = intake("canonical_glossary", glossary, &cfg).unwrap();
+        let bound: Vec<&str> = r.terms.iter().map(|t| t.term.as_str()).collect();
+        assert_eq!(bound, vec!["mediant", "K_STAR"]);
+        assert!(r.structured, "term bindings are promoted structure");
+        assert!(r.terms.iter().all(|t| t.home == "canonical_glossary"));
+
+        // The same rows in a non-glossary doc bind nothing: status maps bold
+        // terms they *use*; only the registry *binds*.
+        let r2 = intake("framework_status", glossary, &cfg).unwrap();
+        assert!(r2.terms.is_empty());
+    }
+
+    #[test]
+    fn duplicate_term_homes_surface_as_term_home_conflict() {
+        let docs = vec![
+            (
+                "old_glossary".to_string(),
+                "| **mediant** | x | y | z |\n".to_string(),
+            ),
+            (
+                "new_glossary".to_string(),
+                "| **mediant** | x | y | z |\n".to_string(),
+            ),
+        ];
+        let report = intake_corpus(&docs, &IntakeConfig::new("t")).unwrap();
+        assert_eq!(report.exit_code(), 1);
+        let conflict = report
+            .cross_conflicts
+            .iter()
+            .find(|c| c.kind == "term_home_conflict")
+            .expect("one term bound to two homes must surface");
+        assert!(conflict.detail.contains("2 homes"));
+    }
+
+    #[test]
+    fn route_findings_land_in_needs_review_with_doc() {
+        struct Flagger;
+        impl Structurer for Flagger {
+            fn id(&self) -> &str {
+                "test/flag/v1"
+            }
+            fn structure(&self, _d: &str, _t: &str, _c: &BTreeSet<String>) -> StructuringOutput {
+                StructuringOutput {
+                    findings: vec![RouteFinding {
+                        kind: "deprecated_item".into(),
+                        subject: "old_fn".into(),
+                        detail: "#[deprecated]".into(),
+                    }],
+                    ..Default::default()
+                }
+            }
+        }
+        let cfg = IntakeConfig::new("t");
+        let routes: [&dyn Structurer; 1] = [&Flagger];
+        let r = intake_with_routes("some_mod", "text", &cfg, &routes).unwrap();
+        assert_eq!(r.exit_code(), 1);
+        assert_eq!(r.needs_review[0].kind, "deprecated_item");
+        assert_eq!(r.needs_review[0].doc, "some_mod");
+        assert_eq!(r.needs_review[0].subject, "old_fn");
+    }
 
     fn corpus_cfg(ids: &[&str]) -> IntakeConfig {
         let mut cfg = IntakeConfig::new("claude");

@@ -63,6 +63,25 @@ pub fn proposition_schema() -> Schema {
         .witness("value", FieldKind::String)
 }
 
+/// The **term** schema: a vocabulary binding `term → home` (the vocab layer's
+/// atomic unit; DOMAINS.md, INTAKE.md's structuring stratum applied to names).
+///
+/// Identity: the `term` string alone — a named concept has **one** canonical
+/// home. Witness: `home`, the owning document. Two documents binding one term
+/// to different homes therefore share an identity CID with disagreeing
+/// witnesses, and the corpus cross-audit surfaces it as a
+/// `WitnessDisagreement` — duplicate-definition detection for free. Packs
+/// that *want* term collisions to coexist (e.g. code symbols, where `new`
+/// legitimately lives everywhere) qualify the term string (`quantum::Quantum`)
+/// instead of relying on bare names. Like the proposition, a term quantum has
+/// no grounds field — grounds live on the assertion, so many documents can
+/// corroborate one binding.
+pub fn term_schema() -> Schema {
+    Schema::new("term", 1)
+        .identity("term", FieldKind::String)
+        .witness("home", FieldKind::String)
+}
+
 /// The **assertion** schema: `(proposition, grounds, agent)`.
 ///
 /// Identity: the `proposition` CID and the `grounds` set it was derived from —
