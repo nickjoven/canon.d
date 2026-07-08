@@ -17,6 +17,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - name: Stub the urtext sibling
+        # The optional `urtext = { path = "../urtext" }` dep must *resolve* even
+        # with the `prose` feature off (cargo reads path-dep manifests during
+        # resolution). This job has no cross-repo token, so a stub manifest
+        # stands in; the prose feature is never enabled here, so the stub is
+        # parsed, not compiled. full-stack.yml checks out the real urtext and is
+        # the only CI home of the prose wire. (CI was red from d7ec570 to here.)
+        run: |
+          mkdir -p ../urtext/src
+          printf '[package]\nname = "urtext"\nversion = "0.0.0"\nedition = "2021"\n' > ../urtext/Cargo.toml
+          touch ../urtext/src/lib.rs
       - name: Build and test (lib, integration, examples)
         run: |
           cargo build --release
@@ -36,6 +47,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - name: Stub the urtext sibling (see the test job)
+        run: |
+          mkdir -p ../urtext/src
+          printf '[package]\nname = "urtext"\nversion = "0.0.0"\nedition = "2021"\n' > ../urtext/Cargo.toml
+          touch ../urtext/src/lib.rs
       - name: Constitution self-host
         run: |
           cargo run -q --bin canon-demo -- constitution --json \
@@ -54,6 +70,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - name: Stub the urtext sibling (see the test job)
+        run: |
+          mkdir -p ../urtext/src
+          printf '[package]\nname = "urtext"\nversion = "0.0.0"\nedition = "2021"\n' > ../urtext/Cargo.toml
+          touch ../urtext/src/lib.rs
       - name: Build
         run: cargo build --release --bin canon-demo
       - name: Exit-code contract
