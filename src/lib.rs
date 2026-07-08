@@ -39,11 +39,11 @@ pub mod quantum;
 pub mod reconcile;
 mod schema;
 pub mod strata;
-// Unit 2 (route promotion + deterministic prose routes) rides the urtext wire,
-// so both stay behind the `prose` feature. `promote` was born as a second
-// `intake.rs` on quantum-tier in parallel with the Unit 1 spine; renamed at
-// merge — the spine owns `intake`, the audit/promotion stage is `promote`.
-#[cfg(feature = "prose")]
+// `promote` (Unit 2: domain witness + promotion policy) is pure Rat algebra —
+// no urtext — and feeds the spine in every build. `structurer` rides the
+// urtext wire and stays behind the `prose` feature. (`promote` was born as a
+// second `intake.rs` on quantum-tier in parallel with the Unit 1 spine;
+// renamed at merge — the spine owns `intake`, the audit stage is `promote`.)
 pub mod promote;
 #[cfg(feature = "prose")]
 pub mod structurer;
@@ -63,7 +63,6 @@ pub use constitution::{
     builtin_laws, schema_schema, seal_constitution, seal_schema, Article, Constitution, Treaty,
 };
 pub use cost::{cost_report, Budget, CostReport};
-#[cfg(feature = "prose")]
 pub use promote::{
     cross_audit_routes, CrossAuditReport, DomainRange, Plausibility, Promoted, PromotionPolicy,
     Queued, SubjectDomains,

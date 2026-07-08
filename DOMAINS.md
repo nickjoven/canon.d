@@ -69,9 +69,12 @@ A pack is everything domain-flavored, in four slots:
    CI runs, trial registries). *Not yet built (INTAKE.md Unit 5).*
 
 Current packs: **prose** (`intake::prose_routes` — lineage sections,
-corpus citations, exact-rational claims, glossary term bindings) and
-**code** (`packs::code` — dependency citations, public-API term
-census, `#[deprecated]` tombstone findings; byte-identity quotient).
+corpus citations, exact-rational claims, glossary term bindings; with
+the `prose` feature the deterministic urtext lexicon routes
+(`structurer::LexiconRatioRoute`, prefix + postfix) join the roster as
+independent readers) and **code** (`packs::code` — dependency
+citations, public-API term census, `#[deprecated]` tombstone findings;
+byte-identity quotient).
 
 ## The flexibility contract
 
@@ -112,12 +115,19 @@ untouched.
   `DeprecatedRoute` (tombstone census), and the prose pack's
   `VocabRoute` (glossary rows → term bindings — the vocab layer's
   first sealed stratum).
-- **F4 (open, narrowed)** — the proposal vocabulary is still partly
-  prose-flavored: `RatioClaim` is a harmonics proposition type living
-  in the core output struct (a generalized claim-with-witness type is
-  the fix), and `structured` counts promoted structure only, so a
-  citation-only corpus reads as unstructured despite real citations.
-  Narrowed by F3: term bindings now count as structure.
+- **F4 (largely fixed)** — claims now flow through one attributed,
+  witnessed pipeline: every route's ratio proposals keep their route
+  id through the spine's merge; claims group by `(subject, reduced
+  witness)` so cross-route and cross-spelling agreement collapse to
+  one proposition CID with its route set (the spine sealed *unreduced*
+  identity before this — it was itself the non-reducing emitter its
+  own cross-audit warns about); the Unit 2 domain witness
+  (`promote::SubjectDomains`, un-gated — it never needed urtext) queues
+  out-of-domain values per-doc; and the corpus report carries a
+  promotion verdict (corroboration = distinct docs, `PromotionPolicy`
+  threshold). Remaining residue: `RatioClaim` is the *only* claim kind
+  — generalize the witness when a second kind exists (the SB-path
+  witness is the named candidate).
 
 ## Status
 

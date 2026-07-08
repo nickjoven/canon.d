@@ -33,6 +33,9 @@ use serde_json::{json, Value};
 use crate::bridge::{seal_utterance_with, Canonicalizer};
 use crate::generator::Rat;
 use crate::lineage::{lineage_to_annotations, parse_lineage, TypedEdge};
+use crate::promote::{
+    CrossAuditReport, Plausibility, Promoted, PromotionPolicy, Queued, SubjectDomains,
+};
 use crate::quantum::{cross_audit, CrossAuditConflict, Quantum, QuantumError};
 use crate::strata::{proposition_schema, seal_assertion, term_schema, StrataError};
 
@@ -58,6 +61,13 @@ pub struct IntakeConfig {
     pub corpus_ids: BTreeSet<String>,
     pub falsified: BTreeSet<String>,
     pub canonicalizer: Canonicalizer,
+    /// Subject value laws (the Unit 2 domain witness): a claim whose value
+    /// falls outside its subject's declared domain is queued
+    /// (`out_of_domain`), never promoted. Empty = unconstrained.
+    pub domains: SubjectDomains,
+    /// Corpus-level promotion threshold: a proposition corroborated by fewer
+    /// distinct documents than this is queued, not promoted.
+    pub policy: PromotionPolicy,
 }
 
 impl IntakeConfig {
@@ -68,19 +78,24 @@ impl IntakeConfig {
             corpus_ids: BTreeSet::new(),
             falsified: BTreeSet::new(),
             canonicalizer: Canonicalizer::Text,
+            domains: SubjectDomains::default(),
+            policy: PromotionPolicy::default(),
         }
     }
 }
 
-/// A strict inline ratio claim: `subject = num/den` with identifier-shaped
-/// subject and integer parts. The deliberate narrowness is the point — the
-/// route extracts only what it can seal with an exact witness; everything
-/// fuzzier stays in the utterance backlog (`structured: false` telemetry).
+/// An exact-rational claim proposal: `subject`'s value is `num/den`. Emitted
+/// by any route that can read one — the strict `ratio/v1` scanner, the
+/// urtext-backed prefix/postfix lexicon routes — and the deliberate
+/// narrowness is the point: routes propose only what seals with an exact
+/// witness; everything fuzzier stays in the utterance backlog. `i128` to
+/// match the urtext lift; values outside `i64` cannot enter the `Rat`
+/// algebra and are queued at the witness step, not silently truncated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RatioClaim {
     pub subject: String,
-    pub num: i64,
-    pub den: i64,
+    pub num: i128,
+    pub den: i128,
 }
 
 /// A route-proposed review item (DOMAINS.md F3): a route that recognizes a
@@ -118,6 +133,10 @@ pub struct StructuringOutput {
     pub ratios: Vec<RatioClaim>,
     pub findings: Vec<RouteFinding>,
     pub terms: Vec<TermBinding>,
+    /// Values the route lifted but could not attribute to a subject — counted
+    /// (surfaced in telemetry as the coverage gap), neither guessed nor
+    /// flooded into the review queue.
+    pub unattributed: usize,
 }
 
 /// A structurer: one route from canonical text to structure proposals. The id
@@ -306,7 +325,13 @@ pub fn extract_ratio_claims(text: &str) -> Vec<RatioClaim> {
             if subject.is_empty() || subject.chars().next().unwrap().is_ascii_digit() {
                 continue;
             }
-            if l > 0 && is_word(bytes[l - 1]) {
+            // Left flank must be a real boundary. `is_word` is ASCII, so a
+            // Greek-lettered subject like `Ω_b` used to *truncate* to `_b` —
+            // a confident wrong subject over the live corpus (`_b = 1/19` is
+            // Ω_b's claim under a junk name). Any alphanumeric neighbor,
+            // ASCII or not, means this is a fragment: skip it. Precision
+            // over recall — the lexicon routes own non-ASCII subjects.
+            if l > 0 && (is_word(bytes[l - 1]) || bytes[l - 1].is_alphanumeric()) {
                 continue; // left flank not word-bounded
             }
             // right: optional spaces, digits, '/', digits, bounded
@@ -321,7 +346,7 @@ pub fn extract_ratio_claims(text: &str) -> Vec<RatioClaim> {
             if r == num_start || r >= bytes.len() || bytes[r] != '/' {
                 continue;
             }
-            let num: i64 = match bytes[num_start..r].iter().collect::<String>().parse() {
+            let num: i128 = match bytes[num_start..r].iter().collect::<String>().parse() {
                 Ok(n) => n,
                 Err(_) => continue,
             };
@@ -336,7 +361,7 @@ pub fn extract_ratio_claims(text: &str) -> Vec<RatioClaim> {
             if r < bytes.len() && is_word(bytes[r]) {
                 continue; // right flank not word-bounded
             }
-            let den: i64 = match bytes[den_start..r].iter().collect::<String>().parse() {
+            let den: i128 = match bytes[den_start..r].iter().collect::<String>().parse() {
                 Ok(n) => n,
                 Err(_) => continue,
             };
@@ -364,7 +389,9 @@ pub struct EdgeOut {
 }
 
 /// A promoted ratio claim: proposition + the assertion grounding it in the
-/// source utterance.
+/// source utterance. One entry per distinct `(subject, witness)` in the doc,
+/// however many routes proposed it — the routes are recorded, so promotion
+/// is attributed, never anonymous (INTAKE.md Unit 2).
 #[derive(Debug, Clone, Serialize)]
 pub struct PropositionOut {
     pub subject: String,
@@ -372,6 +399,9 @@ pub struct PropositionOut {
     pub den: i64,
     /// Exact reduced witness (`Rat::reduced_string`).
     pub witness: String,
+    /// The structurer routes that independently proposed this claim in this
+    /// document. Cross-route agreement is corroboration.
+    pub routes: Vec<String>,
     pub proposition_cid: String,
     pub assertion_cid: String,
 }
@@ -422,6 +452,9 @@ pub struct IntakeReport {
     pub terms: Vec<TermOut>,
     pub needs_review: Vec<ReviewItem>,
     pub blocked: Vec<Blocked>,
+    /// Values routes lifted but could not attribute to a subject — the
+    /// coverage gap, counted (W1 made measurable without flooding review).
+    pub unattributed_values: usize,
     /// Did any route produce structure? `false` is the sealed-but-unstructured
     /// backlog (`utterance_coverage` telemetry).
     pub structured: bool,
@@ -481,13 +514,17 @@ pub fn intake_with_routes(
         .to_string();
 
     let mut merged = StructuringOutput::default();
+    // Claims keep their proposing route: attribution survives the merge, so
+    // cross-route agreement is measurable downstream (Unit 2).
+    let mut route_claims: Vec<(String, RatioClaim)> = Vec::new();
     for r in routes {
         let o = r.structure(doc_id, &canonical, &cfg.corpus_ids);
         merged.typed_edges.extend(o.typed_edges);
         merged.references.extend(o.references);
-        merged.ratios.extend(o.ratios);
+        route_claims.extend(o.ratios.into_iter().map(|c| (r.id().to_string(), c)));
         merged.findings.extend(o.findings);
         merged.terms.extend(o.terms);
+        merged.unattributed += o.unattributed;
     }
 
     let mut needs_review: Vec<ReviewItem> = Vec::new();
@@ -536,42 +573,92 @@ pub fn intake_with_routes(
     references.sort();
     references.dedup();
 
-    // Ratio claims: exact witness or review; Falsified CIDs blocked at the gate.
-    let mut propositions: Vec<PropositionOut> = Vec::new();
-    for c in &merged.ratios {
-        let witness = match Rat::new(c.num, c.den) {
-            Ok(r) => r.reduced_string(),
+    // Ratio claims, in three steps (Unit 2 wired into the spine):
+    //   1. group by (subject, reduced witness) across routes — cross-route
+    //      agreement collapses to one claim with its route set;
+    //   2. domain witness — a value outside its subject's declared law is
+    //      queued (`out_of_domain`), never promoted;
+    //   3. exact witness sealed as proposition + assertion; Falsified CIDs
+    //      blocked at the gate.
+    struct ClaimAcc {
+        num: i64,
+        den: i64,
+        routes: BTreeSet<String>,
+    }
+    let mut grouped: BTreeMap<(String, String), ClaimAcc> = BTreeMap::new();
+    for (route_id, c) in &route_claims {
+        let (Ok(num), Ok(den)) = (i64::try_from(c.num), i64::try_from(c.den)) else {
+            needs_review.push(ReviewItem {
+                kind: "invalid_ratio".into(),
+                doc: doc_id.into(),
+                subject: c.subject.clone(),
+                detail: format!(
+                    "{}/{} is outside the i64 exact-rational domain",
+                    c.num, c.den
+                ),
+            });
+            continue;
+        };
+        let rat = match Rat::new(num, den) {
+            Ok(r) => r,
             Err(e) => {
                 needs_review.push(ReviewItem {
                     kind: "invalid_ratio".into(),
                     doc: doc_id.into(),
                     subject: c.subject.clone(),
-                    detail: format!(
-                        "{}/{} is outside the exact-rational domain: {e}",
-                        c.num, c.den
-                    ),
+                    detail: format!("{num}/{den} is outside the exact-rational domain: {e}"),
                 });
                 continue;
             }
         };
+        // Seal the *reduced* identity: `x = 2/6` and `x = 1/3` are one
+        // proposition (one CID), not one witness under two forms. The
+        // cross-audit still re-reduces independently, so a future
+        // non-reducing emitter is caught rather than trusted.
+        grouped
+            .entry((c.subject.clone(), rat.reduced_string()))
+            .or_insert(ClaimAcc {
+                num: rat.numerator(),
+                den: rat.denominator(),
+                routes: BTreeSet::new(),
+            })
+            .routes
+            .insert(route_id.clone());
+    }
+
+    let mut propositions: Vec<PropositionOut> = Vec::new();
+    for ((subject, witness), acc) in grouped {
+        if let Plausibility::OutOfDomain { domain } =
+            cfg.domains
+                .witness(&subject, i128::from(acc.num), i128::from(acc.den))
+        {
+            needs_review.push(ReviewItem {
+                kind: "out_of_domain".into(),
+                doc: doc_id.into(),
+                subject: subject.clone(),
+                detail: format!("{witness} violates the declared value law {domain}"),
+            });
+            continue;
+        }
         let prop = Quantum::seal(
             &proposition_schema(),
-            &json!({"subject": c.subject, "num": c.num, "den": c.den, "value": witness}),
+            &json!({"subject": subject, "num": acc.num, "den": acc.den, "value": witness}),
         )?;
         if cfg.falsified.contains(&prop.cid) {
             blocked.push(Blocked {
                 doc: doc_id.into(),
-                subject: c.subject.clone(),
+                subject,
                 proposition_cid: prop.cid,
             });
             continue;
         }
         let assertion = seal_assertion(&prop, &[&utterance], &cfg.annotator)?;
         propositions.push(PropositionOut {
-            subject: c.subject.clone(),
-            num: c.num,
-            den: c.den,
+            subject,
+            num: acc.num,
+            den: acc.den,
             witness,
+            routes: acc.routes.into_iter().collect(),
             proposition_cid: prop.cid,
             assertion_cid: assertion.cid,
         });
@@ -606,6 +693,7 @@ pub fn intake_with_routes(
         terms,
         needs_review,
         blocked,
+        unattributed_values: merged.unattributed,
         structured,
     })
 }
@@ -623,6 +711,12 @@ pub struct CorpusReport {
     /// e.g. one witness under two forms (a non-reducing emitter) surfaces as
     /// an UnderMerge review item here, not in any single doc.
     pub cross_conflicts: Vec<ReviewItem>,
+    /// The corpus-level promotion verdict (Unit 2): every distinct
+    /// proposition with its corroboration (distinct documents) and the union
+    /// of routes that reached it; under-corroborated propositions are queued
+    /// per [`IntakeConfig::policy`]. Out-of-domain claims never got this far
+    /// — they were queued per-doc by the domain witness.
+    pub promotions: CrossAuditReport,
     pub telemetry: Telemetry,
 }
 
@@ -637,14 +731,19 @@ pub struct Telemetry {
     pub references_untyped: usize,
     pub propositions: usize,
     pub terms_bound: usize,
+    /// Promoted propositions backed by more than one document or route.
+    pub corroborated: usize,
+    /// Values lifted but not attributed to any subject (the coverage gap).
+    pub unattributed_values: usize,
     pub needs_review_depth: usize,
     pub reassertion_blocks: usize,
 }
 
 impl CorpusReport {
     pub fn exit_code(&self) -> i32 {
-        let clean =
-            self.cross_conflicts.is_empty() && self.reports.iter().all(|r| r.exit_code() == 0);
+        let clean = self.cross_conflicts.is_empty()
+            && self.promotions.queued.is_empty()
+            && self.reports.iter().all(|r| r.exit_code() == 0);
         if clean {
             0
         } else {
@@ -785,6 +884,63 @@ pub fn intake_corpus_with_routes(
     }
     cross_conflicts.sort();
 
+    // Corpus-level promotion (Unit 2): aggregate every doc's sealed
+    // propositions by CID. Corroboration = distinct documents asserting it;
+    // routes = union across docs. Under the policy threshold → queued.
+    struct PropAcc {
+        subject: String,
+        value: String,
+        docs: BTreeSet<String>,
+        routes: BTreeSet<String>,
+    }
+    let mut agg: BTreeMap<String, PropAcc> = BTreeMap::new();
+    for r in &reports {
+        for p in &r.propositions {
+            let acc = agg.entry(p.proposition_cid.clone()).or_insert(PropAcc {
+                subject: p.subject.clone(),
+                value: p.witness.clone(),
+                docs: BTreeSet::new(),
+                routes: BTreeSet::new(),
+            });
+            acc.docs.insert(r.doc_id.clone());
+            acc.routes.extend(p.routes.iter().cloned());
+        }
+    }
+    let mut promotions = CrossAuditReport::default();
+    for (cid, acc) in agg {
+        let corroboration = acc.docs.len();
+        if corroboration < cfg.policy.min_corroboration {
+            promotions.queued.push(Queued {
+                proposition: cid,
+                subject: acc.subject,
+                value: acc.value,
+                corroboration,
+                reason: format!(
+                    "under-corroborated ({corroboration} < {})",
+                    cfg.policy.min_corroboration
+                ),
+            });
+        } else {
+            promotions.promoted.push(Promoted {
+                proposition: cid,
+                subject: acc.subject,
+                value: acc.value,
+                corroboration,
+                routes: acc.routes.into_iter().collect(),
+            });
+        }
+    }
+    promotions.promoted.sort_by(|a, b| {
+        b.corroboration
+            .cmp(&a.corroboration)
+            .then(a.value.cmp(&b.value))
+    });
+    promotions.queued.sort_by(|a, b| {
+        b.corroboration
+            .cmp(&a.corroboration)
+            .then(a.value.cmp(&b.value))
+    });
+
     let telemetry = Telemetry {
         docs: reports.len(),
         utterances_sealed: reports.len(),
@@ -793,14 +949,22 @@ pub fn intake_corpus_with_routes(
         references_untyped: reports.iter().map(|r| r.references.len()).sum(),
         propositions: reports.iter().map(|r| r.propositions.len()).sum(),
         terms_bound: reports.iter().map(|r| r.terms.len()).sum(),
+        corroborated: promotions
+            .promoted
+            .iter()
+            .filter(|p| p.corroboration > 1 || p.routes.len() > 1)
+            .count(),
+        unattributed_values: reports.iter().map(|r| r.unattributed_values).sum(),
         needs_review_depth: reports.iter().map(|r| r.needs_review.len()).sum::<usize>()
-            + cross_conflicts.len(),
+            + cross_conflicts.len()
+            + promotions.queued.len(),
         reassertion_blocks: reports.iter().map(|r| r.blocked.len()).sum(),
     };
 
     Ok(CorpusReport {
         reports,
         cross_conflicts,
+        promotions,
         telemetry,
     })
 }
@@ -868,6 +1032,58 @@ mod tests {
     use crate::bridge::ground_audit;
     use crate::bridge::seal_utterance;
     use crate::quantum::validate_edge_kind;
+
+    #[test]
+    fn out_of_domain_claims_queue_instead_of_promoting() {
+        // The Unit 2 domain witness in the spine: Ω_Λ is a density fraction,
+        // so a corpus fragment reading "omega_lambda = 12/1" queues with the
+        // violated law named — never sealed as a promoted fact.
+        let mut cfg = IntakeConfig::new("t");
+        cfg.domains = SubjectDomains::harmonics();
+        let r = intake("doc", "omega_lambda = 13/19\nomega_lambda = 12/1\n", &cfg).unwrap();
+        assert_eq!(r.propositions.len(), 1, "only the in-domain claim seals");
+        assert_eq!(r.propositions[0].witness, "13/19");
+        let q = r
+            .needs_review
+            .iter()
+            .find(|n| n.kind == "out_of_domain")
+            .expect("the 12/1 reading must queue");
+        assert!(
+            q.detail.contains("omega_lambda ∈ (0/1, 1/1)"),
+            "{}",
+            q.detail
+        );
+        assert_eq!(r.exit_code(), 1);
+    }
+
+    #[test]
+    fn same_claim_in_two_docs_corroborates_at_corpus_level() {
+        let docs = vec![
+            ("a".to_string(), "x = 1/3\n".to_string()),
+            ("b".to_string(), "x = 2/6\n".to_string()), // reduces to the same witness
+        ];
+        let report = intake_corpus(&docs, &IntakeConfig::new("t")).unwrap();
+        assert_eq!(report.promotions.promoted.len(), 1);
+        let p = &report.promotions.promoted[0];
+        assert_eq!(p.value, "1/3");
+        assert_eq!(p.corroboration, 2, "two documents assert one proposition");
+        assert_eq!(report.telemetry.corroborated, 1);
+        assert_eq!(report.exit_code(), 0);
+    }
+
+    #[test]
+    fn under_corroborated_claims_queue_under_a_stricter_policy() {
+        let docs = vec![("a".to_string(), "x = 1/3\n".to_string())];
+        let mut cfg = IntakeConfig::new("t");
+        cfg.policy = PromotionPolicy {
+            min_corroboration: 2,
+        };
+        let report = intake_corpus(&docs, &cfg).unwrap();
+        assert!(report.promotions.promoted.is_empty());
+        assert_eq!(report.promotions.queued.len(), 1);
+        assert!(report.promotions.queued[0].reason.contains("1 < 2"));
+        assert_eq!(report.exit_code(), 1, "queued promotions are findings");
+    }
 
     #[test]
     fn vocab_route_binds_glossary_rows_only() {
@@ -1094,16 +1310,28 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
 
     #[test]
     fn corpus_cross_audit_catches_non_reducing_emitter() {
-        // Doc A asserts r = 13/19; doc B asserts r = 26/38. Different forms,
-        // same witness (both reduce to 13/19) → UnderMerge at the corpus level.
+        // Doc A asserts r = 13/19; doc B asserts r = 26/38. The spine used to
+        // seal each form's raw identity, so this surfaced as an UnderMerge —
+        // the spine *was* the non-reducing emitter. It now reduces identity
+        // at the claim-grouping step, so two spellings are one proposition
+        // CID (corroboration 2), no conflict, exit 0. The corpus cross-audit
+        // remains in place to catch any *other* emitter sealing unreduced
+        // propositions into the corpus.
         let docs = vec![
             ("a".to_string(), "r = 13/19\n".to_string()),
             ("b".to_string(), "r = 26/38\n".to_string()),
         ];
         let report = intake_corpus(&docs, &IntakeConfig::new("claude")).unwrap();
-        assert_eq!(report.cross_conflicts.len(), 1);
-        assert_eq!(report.cross_conflicts[0].kind, "cross_audit_conflict");
-        assert_eq!(report.exit_code(), 1);
+        assert!(report.cross_conflicts.is_empty());
+        assert_eq!(report.promotions.promoted.len(), 1);
+        assert_eq!(report.promotions.promoted[0].value, "13/19");
+        assert_eq!(report.promotions.promoted[0].corroboration, 2);
+        assert_eq!(
+            report.reports[0].propositions[0].proposition_cid,
+            report.reports[1].propositions[0].proposition_cid,
+            "one proposition CID across both spellings"
+        );
+        assert_eq!(report.exit_code(), 0);
     }
 
     #[test]
