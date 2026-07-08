@@ -74,7 +74,13 @@ impl SubjectLexicon {
     pub fn harmonics() -> Self {
         Self::new().with_cues(
             "omega_lambda",
-            &["Ω_Λ", "Omega_Lambda", "Omega_L", "dark energy fraction", "dark energy"],
+            &[
+                "Ω_Λ",
+                "Omega_Lambda",
+                "Omega_L",
+                "dark energy fraction",
+                "dark energy",
+            ],
         )
     }
 
@@ -95,7 +101,9 @@ impl SubjectLexicon {
         let hay = prose.to_lowercase();
         let mut best: Option<(usize, usize, &str)> = None; // (end, len, subject)
         for (subject, cue) in &self.entries {
-            let Some(pos) = hay.rfind(cue.as_str()) else { continue };
+            let Some(pos) = hay.rfind(cue.as_str()) else {
+                continue;
+            };
             let end = pos + cue.len();
             if !is_connector(&hay[end..]) {
                 continue; // cue present but not adjacent to the value — no bind
@@ -121,7 +129,9 @@ impl SubjectLexicon {
         let hay = prose.to_lowercase();
         let mut best: Option<(usize, usize, &str)> = None; // (start, len, subject)
         for (subject, cue) in &self.entries {
-            let Some(pos) = hay.find(cue.as_str()) else { continue };
+            let Some(pos) = hay.find(cue.as_str()) else {
+                continue;
+            };
             if !is_connector(&hay[..pos]) {
                 continue; // cue present but not adjacent to the value — no bind
             }
@@ -166,7 +176,9 @@ impl Route {
 /// which is the whole point: it keeps attribution local.
 fn is_connector(tail: &str) -> bool {
     let mut s = tail.to_string();
-    for w in ["equals", "equal", "is", "in", "of", "the", "fraction", "value", "be"] {
+    for w in [
+        "equals", "equal", "is", "in", "of", "the", "fraction", "value", "be",
+    ] {
         s = s.replace(w, " ");
     }
     // Empty tail = cue sits exactly at the region boundary (tightest adjacency).
@@ -397,7 +409,10 @@ mod tests {
         assert_eq!(ex[0].value, "13/19");
         assert_eq!(ex[0].subject.as_deref(), Some("omega_lambda"));
         assert_eq!(ex[1].value, "11/16");
-        assert_eq!(ex[1].subject, None, "second value is not adjacent to the cue");
+        assert_eq!(
+            ex[1].subject, None,
+            "second value is not adjacent to the cue"
+        );
     }
 
     #[test]
@@ -431,7 +446,11 @@ mod tests {
         for span in ["13/19 = Ω_Λ", "13/19 (dark energy)"] {
             let ex = extract_with(span, &lex(), Route::Postfix);
             assert_eq!(ex.len(), 1, "one value in {span:?}");
-            assert_eq!(ex[0].subject.as_deref(), Some("omega_lambda"), "in {span:?}");
+            assert_eq!(
+                ex[0].subject.as_deref(),
+                Some("omega_lambda"),
+                "in {span:?}"
+            );
             assert_eq!(ex[0].value, "13/19");
         }
     }
@@ -441,12 +460,20 @@ mod tests {
         // The prefix form is invisible to the postfix route and vice-versa — the
         // two are genuinely independent, so agreement between them is meaningful.
         let prefix_form = "Ω_Λ = 13/19";
-        assert!(extract_with(prefix_form, &lex(), Route::Prefix)[0].subject.is_some());
-        assert!(extract_with(prefix_form, &lex(), Route::Postfix)[0].subject.is_none());
+        assert!(extract_with(prefix_form, &lex(), Route::Prefix)[0]
+            .subject
+            .is_some());
+        assert!(extract_with(prefix_form, &lex(), Route::Postfix)[0]
+            .subject
+            .is_none());
 
         let postfix_form = "13/19 = Ω_Λ";
-        assert!(extract_with(postfix_form, &lex(), Route::Postfix)[0].subject.is_some());
-        assert!(extract_with(postfix_form, &lex(), Route::Prefix)[0].subject.is_none());
+        assert!(extract_with(postfix_form, &lex(), Route::Postfix)[0]
+            .subject
+            .is_some());
+        assert!(extract_with(postfix_form, &lex(), Route::Prefix)[0]
+            .subject
+            .is_none());
     }
 
     #[test]
@@ -457,6 +484,9 @@ mod tests {
         let q = structure_span_with("13/19 = Ω_Λ", "en", &lex(), Route::Postfix).unwrap();
         assert_eq!(p.structured[0].claim.cid, q.structured[0].claim.cid);
         // ...but the structuring proposals are distinct (different annotators).
-        assert_ne!(p.structured[0].structuring.cid, q.structured[0].structuring.cid);
+        assert_ne!(
+            p.structured[0].structuring.cid,
+            q.structured[0].structuring.cid
+        );
     }
 }

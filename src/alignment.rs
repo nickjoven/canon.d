@@ -69,9 +69,8 @@ pub fn align(source: &Schema, target: &Schema, config: &AlignConfig) -> Vec<Cand
             let ts = type_compatibility(&sf.kind, &tf.kind);
             let is = identity_alignment(sf.identity, tf.identity);
 
-            let confidence = config.name_weight * ns
-                + config.type_weight * ts
-                + config.identity_weight * is;
+            let confidence =
+                config.name_weight * ns + config.type_weight * ts + config.identity_weight * is;
 
             if confidence >= config.min_confidence {
                 candidates.push(Candidate {
@@ -124,10 +123,12 @@ fn name_similarity(a: &str, b: &str) -> f64 {
     for i in 1..=m {
         curr[0] = i;
         for j in 1..=n {
-            let cost = if a_bytes[i - 1] == b_bytes[j - 1] { 0 } else { 1 };
-            curr[j] = (prev[j] + 1)
-                .min(curr[j - 1] + 1)
-                .min(prev[j - 1] + cost);
+            let cost = if a_bytes[i - 1] == b_bytes[j - 1] {
+                0
+            } else {
+                1
+            };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
         }
         std::mem::swap(&mut prev, &mut curr);
     }
@@ -252,7 +253,11 @@ mod tests {
 
         // High similarity with substring bonus
         let score = name_similarity("patient_id", "patient_identifier");
-        assert!(score > 0.7, "patient_id vs patient_identifier should be high, got {}", score);
+        assert!(
+            score > 0.7,
+            "patient_id vs patient_identifier should be high, got {}",
+            score
+        );
 
         // Low similarity
         let score = name_similarity("name", "address");
@@ -260,7 +265,11 @@ mod tests {
 
         // Substring bonus: "id" is contained in "identifier"
         let score = name_similarity("id", "identifier");
-        assert!(score >= 0.5 - 1e-9, "id vs identifier should get substring bonus, got {}", score);
+        assert!(
+            score >= 0.5 - 1e-9,
+            "id vs identifier should get substring bonus, got {}",
+            score
+        );
     }
 
     #[test]
@@ -392,7 +401,8 @@ mod tests {
             },
         ];
 
-        let mappings = candidates_to_mappings("cid_source", "cid_target", &candidates, "test-agent");
+        let mappings =
+            candidates_to_mappings("cid_source", "cid_target", &candidates, "test-agent");
 
         assert_eq!(mappings.len(), 2);
 

@@ -9,8 +9,8 @@
 //! Updating a constant here is therefore never routine maintenance: it is the
 //! release act itself. The diff *is* the migration notice.
 
-use canon_d::{proposition_schema, seal_constitution, Quantum};
 use canon_d::quantum::schema_cid;
+use canon_d::{proposition_schema, seal_constitution, Quantum};
 use serde_json::json;
 
 /// V1 — the law's own bytes: the proposition schema's CID.
@@ -22,8 +22,7 @@ const GOLDEN_PROPOSITION_SCHEMA_CID: &str =
 /// V2 — the seal path: Ω_Λ = 13/19 sealed as a proposition.
 /// Pins: Canon::encode field ordering, identity projection, the address function
 /// (schema_cid ‖ 0x1f ‖ identity).
-const GOLDEN_OMEGA_CID: &str =
-    "febf3ea4dac3d3284995cbde0569a8fe17d23ffece1748f60e449df15f98e2b0";
+const GOLDEN_OMEGA_CID: &str = "febf3ea4dac3d3284995cbde0569a8fe17d23ffece1748f60e449df15f98e2b0";
 
 /// V3 — the meta tier: the keystone (meta-schema sealed under itself).
 /// Pins: the self-hosting fixpoint and the treaty's canonicalizer fingerprint.
@@ -53,7 +52,10 @@ fn omega() -> Quantum {
 
 #[test]
 fn golden_v1_schema_bytes() {
-    assert_eq!(schema_cid(&proposition_schema()), GOLDEN_PROPOSITION_SCHEMA_CID);
+    assert_eq!(
+        schema_cid(&proposition_schema()),
+        GOLDEN_PROPOSITION_SCHEMA_CID
+    );
 }
 
 #[test]

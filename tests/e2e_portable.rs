@@ -13,9 +13,7 @@
 mod common;
 use common::{omega_corpus, trusted_log, Corpus};
 
-use canon_d::{
-    export, import, verify_regeneration, Bundle, BundleEntry, Memo, Rule, SchemaKind,
-};
+use canon_d::{export, import, verify_regeneration, Bundle, BundleEntry, Memo, Rule, SchemaKind};
 use serde_json::json;
 
 /// Pack the Ω_Λ chain (anchor ← generator ← proposition, + the back-link
@@ -31,8 +29,14 @@ fn omega_bundle(c: &Corpus) -> Bundle {
         ],
         vec![c.anchor.cid.clone()],
         vec![
-            Rule { head: c.generator.cid.clone(), body: vec![c.anchor.cid.clone()] },
-            Rule { head: c.proposition.cid.clone(), body: vec![c.generator.cid.clone()] },
+            Rule {
+                head: c.generator.cid.clone(),
+                body: vec![c.anchor.cid.clone()],
+            },
+            Rule {
+                head: c.proposition.cid.clone(),
+                body: vec![c.generator.cid.clone()],
+            },
         ],
         &log,
         vec![c.vouch.clone()],
@@ -63,7 +67,10 @@ fn bundle_round_trips_and_imports_the_certified_fact() {
 fn forward_projection_is_certain_and_exact() {
     let c = omega_corpus();
     let mut loaded = import(&omega_bundle(&c)).unwrap();
-    assert!(loaded.closure.is_certain(&c.proposition.cid), "imported Ω_Λ is certain");
+    assert!(
+        loaded.closure.is_certain(&c.proposition.cid),
+        "imported Ω_Λ is certain"
+    );
 
     // FORWARD PROJECTION: a new generator computing Ω_matter = 1 − Ω_Λ. Its input
     // is the IMPORTED Ω_Λ quantum — its value (13/19) is read from that fact, not
@@ -79,24 +86,54 @@ fn forward_projection_is_certain_and_exact() {
     });
     let inputs = [&imported];
     let mut memo = Memo::new();
-    let fwd = canon_d::project(&mut memo, &fwd_program, &inputs, "omega_matter", "downstream").unwrap();
+    let fwd = canon_d::project(
+        &mut memo,
+        &fwd_program,
+        &inputs,
+        "omega_matter",
+        "downstream",
+    )
+    .unwrap();
 
     // EXACT: 1 − 13/19 = 6/19, an exact rational (not a lossy float)
-    assert_eq!(fwd.proposition.field("num").and_then(|v| v.as_i64()), Some(6));
-    assert_eq!(fwd.proposition.field("den").and_then(|v| v.as_i64()), Some(19));
-    assert_eq!(fwd.proposition.field("value").and_then(|v| v.as_str()), Some("6/19"), "exact, not float");
+    assert_eq!(
+        fwd.proposition.field("num").and_then(|v| v.as_i64()),
+        Some(6)
+    );
+    assert_eq!(
+        fwd.proposition.field("den").and_then(|v| v.as_i64()),
+        Some(19)
+    );
+    assert_eq!(
+        fwd.proposition.field("value").and_then(|v| v.as_str()),
+        Some("6/19"),
+        "exact, not float"
+    );
 
     // the regeneration link holds for the forward generator
     assert!(
-        verify_regeneration(&fwd_program, &inputs, "omega_matter", "downstream", &fwd.proposition.cid).unwrap(),
+        verify_regeneration(
+            &fwd_program,
+            &inputs,
+            "omega_matter",
+            "downstream",
+            &fwd.proposition.cid
+        )
+        .unwrap(),
         "the forward generator reproduces 6/19"
     );
 
     // CORRECT: ground it across the import boundary — fwd-generator ← imported Ω_Λ,
     // and Ω_matter ← fwd-generator — and it becomes certain, grounded transitively
     // back to the imported, certified Planck anchor.
-    loaded.closure.add_rule(fwd.generator.cid.clone(), [c.proposition.cid.clone()].into_iter().collect());
-    loaded.closure.add_rule(fwd.proposition.cid.clone(), [fwd.generator.cid.clone()].into_iter().collect());
+    loaded.closure.add_rule(
+        fwd.generator.cid.clone(),
+        [c.proposition.cid.clone()].into_iter().collect(),
+    );
+    loaded.closure.add_rule(
+        fwd.proposition.cid.clone(),
+        [fwd.generator.cid.clone()].into_iter().collect(),
+    );
     assert!(
         loaded.closure.is_certain(&fwd.proposition.cid),
         "the forward projection is certain — grounded back to the imported boundary"
@@ -110,7 +147,9 @@ fn imported_fact_is_empirically_validated_against_the_measurement() {
     // (it matches Planck at ~0.07σ). Correct forward knowledge = both.
     let c = omega_corpus();
     let loaded = import(&omega_bundle(&c)).unwrap();
-    let omega = loaded.certain_fact(&c.proposition.cid).expect("Ω_Λ is certain");
+    let omega = loaded
+        .certain_fact(&c.proposition.cid)
+        .expect("Ω_Λ is certain");
 
     // a Planck measurement WITH uncertainty
     let planck = canon_d::Quantum::seal(
@@ -120,8 +159,12 @@ fn imported_fact_is_empirically_validated_against_the_measurement() {
     )
     .unwrap();
 
-    let verdict = canon_d::reconcile_quanta(omega, &planck, &canon_d::Tolerance::default()).unwrap();
-    assert!(verdict.is_consistent(), "the imported exact fact agrees with Planck: {verdict:?}");
+    let verdict =
+        canon_d::reconcile_quanta(omega, &planck, &canon_d::Tolerance::default()).unwrap();
+    assert!(
+        verdict.is_consistent(),
+        "the imported exact fact agrees with Planck: {verdict:?}"
+    );
     assert!(verdict.z() < 0.1, "at ~0.07σ, got {}", verdict.z());
 }
 

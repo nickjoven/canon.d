@@ -103,7 +103,10 @@ pub fn lineage_closure(anchors: &[&str], edges: &[TypedEdge]) -> Closure {
     let mut bodies: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for e in edges {
         if GROUNDING_KINDS.contains(&e.kind.as_str()) {
-            bodies.entry(e.from.clone()).or_default().insert(e.to.clone());
+            bodies
+                .entry(e.from.clone())
+                .or_default()
+                .insert(e.to.clone());
         }
     }
     let mut c = Closure::new();
@@ -140,9 +143,15 @@ unrelated trailing section
     fn parses_typed_edges_from_lineage() {
         let edges = parse_lineage("baryon_fraction", DOC);
         assert_eq!(edges.len(), 4, "two grounds + one derives + one proposes");
-        assert!(edges.iter().any(|e| e.to == "klein_bottle" && e.kind == "grounds"));
-        assert!(edges.iter().any(|e| e.to == "born_rule" && e.kind == "grounds"));
-        assert!(edges.iter().any(|e| e.to == "numerology_inventory" && e.kind == "derives"));
+        assert!(edges
+            .iter()
+            .any(|e| e.to == "klein_bottle" && e.kind == "grounds"));
+        assert!(edges
+            .iter()
+            .any(|e| e.to == "born_rule" && e.kind == "grounds"));
+        assert!(edges
+            .iter()
+            .any(|e| e.to == "numerology_inventory" && e.kind == "derives"));
         assert!(edges.iter().any(|e| e.kind == "proposes"));
         // every edge carries a known kind
         for e in &edges {
@@ -152,14 +161,24 @@ unrelated trailing section
 
     #[test]
     fn no_lineage_block_yields_no_typed_edges() {
-        let edges = parse_lineage("plain", "# plain\n\njust prose, cites klein_bottle inline\n");
-        assert!(edges.is_empty(), "untyped docs stay untyped (references), not invented grounds");
+        let edges = parse_lineage(
+            "plain",
+            "# plain\n\njust prose, cites klein_bottle inline\n",
+        );
+        assert!(
+            edges.is_empty(),
+            "untyped docs stay untyped (references), not invented grounds"
+        );
     }
 
     #[test]
     fn unknown_kinds_are_skipped() {
         let edges = parse_lineage("d", "## Lineage\n- causes: x\n- grounds: y\n");
-        assert_eq!(edges.len(), 1, "`causes` is not an edge kind; only `grounds: y` is taken");
+        assert_eq!(
+            edges.len(),
+            1,
+            "`causes` is not an edge kind; only `grounds: y` is taken"
+        );
         assert_eq!(edges[0].to, "y");
     }
 
@@ -169,8 +188,14 @@ unrelated trailing section
         let anns = lineage_to_annotations(&edges, "importer");
         assert_eq!(anns.len(), 4);
         for a in &anns {
-            assert!(validate_edge_kind(&a.body).is_ok(), "each sealed annotation has a valid kind");
-            assert_eq!(a.field("annotator").and_then(|v| v.as_str()), Some("importer"));
+            assert!(
+                validate_edge_kind(&a.body).is_ok(),
+                "each sealed annotation has a valid kind"
+            );
+            assert_eq!(
+                a.field("annotator").and_then(|v| v.as_str()),
+                Some("importer")
+            );
         }
     }
 
@@ -178,23 +203,39 @@ unrelated trailing section
     fn typed_grounds_feed_the_closure_as_certainty() {
         // baryon_fraction grounds-on klein_bottle; omega derives-from baryon_fraction.
         let mut edges = parse_lineage("baryon_fraction", "## Lineage\n- grounds: klein_bottle\n");
-        edges.extend(parse_lineage("omega_lambda", "## Lineage\n- derives: baryon_fraction\n"));
+        edges.extend(parse_lineage(
+            "omega_lambda",
+            "## Lineage\n- derives: baryon_fraction\n",
+        ));
 
         // klein_bottle is the vouched keystone (an anchor). Then certainty flows.
         let c = lineage_closure(&["klein_bottle"], &edges);
         assert!(c.is_certain("klein_bottle"));
-        assert!(c.is_certain("baryon_fraction"), "grounded back to the anchor");
+        assert!(
+            c.is_certain("baryon_fraction"),
+            "grounded back to the anchor"
+        );
         assert!(c.is_certain("omega_lambda"), "derived from a certain fact");
 
         // WITHOUT anchoring the keystone, nothing is certain — typing alone is not
         // certainty; certainty is borrowed from a grounded anchor (the boundary).
         let c2 = lineage_closure(&[], &edges);
-        assert!(c2.certain().is_empty(), "no anchor → no certainty, however well-typed");
+        assert!(
+            c2.certain().is_empty(),
+            "no anchor → no certainty, however well-typed"
+        );
 
         // And flat `references` (no grounding edges) would give NO closure rules at
         // all — typing is exactly what turns citation into certainty.
-        let refs = vec![TypedEdge { from: "a".into(), to: "b".into(), kind: "references".into() }];
+        let refs = vec![TypedEdge {
+            from: "a".into(),
+            to: "b".into(),
+            kind: "references".into(),
+        }];
         assert!(lineage_closure(&["b"], &refs).is_certain("b"));
-        assert!(!lineage_closure(&["b"], &refs).is_certain("a"), "a `references` edge grounds nothing");
+        assert!(
+            !lineage_closure(&["b"], &refs).is_certain("a"),
+            "a `references` edge grounds nothing"
+        );
     }
 }

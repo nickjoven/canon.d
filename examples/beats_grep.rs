@@ -38,9 +38,7 @@ mod real {
     use std::fs;
     use std::path::Path;
 
-    use canon_d::{
-        attestation_schema, proposition_schema, reconcile_gate, Quantum, Tolerance,
-    };
+    use canon_d::{attestation_schema, proposition_schema, reconcile_gate, Quantum, Tolerance};
     use serde_json::json;
     use urtext::{regions, to_rational, RegionKind};
 
@@ -52,7 +50,9 @@ mod real {
     const TRUNC_DEC: &str = "0.6842"; // the prediction, truncated to a decimal
 
     pub fn run() {
-        let dir = std::env::args().nth(1).unwrap_or_else(|| DEFAULT_CORPUS.to_string());
+        let dir = std::env::args()
+            .nth(1)
+            .unwrap_or_else(|| DEFAULT_CORPUS.to_string());
         let docs = read_corpus(Path::new(&dir));
         if docs.is_empty() {
             eprintln!("no .md files under {dir} — pass a corpus dir as the first argument");
@@ -65,12 +65,8 @@ mod real {
         let exit = act3_canon_reconciles();
 
         println!("\n=== verdict ===");
-        println!(
-            "grep: 3 disjoint string sets, zero judgment about whether they agree."
-        );
-        println!(
-            "substrate: one concept (13/19 exact), reconciled to an exact σ verdict."
-        );
+        println!("grep: 3 disjoint string sets, zero judgment about whether they agree.");
+        println!("substrate: one concept (13/19 exact), reconciled to an exact σ verdict.");
         std::process::exit(exit);
     }
 
@@ -84,7 +80,9 @@ mod real {
     }
 
     fn collect_md(dir: &Path, out: &mut Vec<(String, String)>) {
-        let Ok(entries) = fs::read_dir(dir) else { return };
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
@@ -111,9 +109,18 @@ mod real {
         let frac = docs_containing(docs, FRACTION);
         let planck = docs_containing(docs, PLANCK_DEC);
         let trunc = docs_containing(docs, TRUNC_DEC);
-        println!("  grep '{FRACTION}'   → {:>3} docs   (the exact prediction, as a fraction)", frac.len());
-        println!("  grep '{PLANCK_DEC}'  → {:>3} docs   (the Planck measurement, as a decimal)", planck.len());
-        println!("  grep '{TRUNC_DEC}'  → {:>3} docs   (the prediction, truncated to a decimal)", trunc.len());
+        println!(
+            "  grep '{FRACTION}'   → {:>3} docs   (the exact prediction, as a fraction)",
+            frac.len()
+        );
+        println!(
+            "  grep '{PLANCK_DEC}'  → {:>3} docs   (the Planck measurement, as a decimal)",
+            planck.len()
+        );
+        println!(
+            "  grep '{TRUNC_DEC}'  → {:>3} docs   (the prediction, truncated to a decimal)",
+            trunc.len()
+        );
 
         let planck_missed: Vec<_> = planck.difference(&frac).collect();
         let trunc_missed: Vec<_> = trunc.difference(&frac).collect();

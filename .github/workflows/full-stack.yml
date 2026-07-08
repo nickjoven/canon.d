@@ -57,12 +57,20 @@ jobs:
           cargo test --features prose
           cargo run -q --bin canon-demo -- constitution --json \
             | python3 -m json.tool | grep -E '"self_hosts"|"constitution_root"'
+          # Intake through the prose wire: the report must pin the urtext
+          # canonicalizer, not the identity fallback. ci.yml exercises the
+          # exit-code contract in identity mode; this is the only place the
+          # urtext-canonicalized intake path runs in CI.
+          cargo run -q --features prose --bin canon-demo -- \
+            intake-corpus tests/fixtures/intake --json > intake-report.json
+          grep -q '"canonicalizer": "urtext"' intake-report.json
 
       - name: Assemble the machine
         run: |
           mkdir -p machine
           cp urtext/web/demo.html machine/demo.html
           cp canon.d/RELEASE.md canon.d/INTAKE.md machine/ 2>/dev/null || true
+          cp canon.d/intake-report.json machine/
           cargo run --manifest-path canon.d/Cargo.toml -q --bin canon-demo -- constitution --json \
             > machine/constitution.json
 

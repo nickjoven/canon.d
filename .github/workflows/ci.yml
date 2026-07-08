@@ -17,6 +17,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - name: Stub the urtext sibling
+        # The optional `urtext = { path = "../urtext" }` dep must *resolve* even
+        # with the `prose` feature off (cargo reads path-dep manifests during
+        # resolution). This job has no cross-repo token, so a stub manifest
+        # stands in; the prose feature is never enabled here, so the stub is
+        # parsed, not compiled. full-stack.yml checks out the real urtext and is
+        # the only CI home of the prose wire. (CI was red from d7ec570 to here.)
+        run: |
+          mkdir -p ../urtext/src
+          printf '[package]\nname = "urtext"\nversion = "0.0.0"\nedition = "2021"\n' > ../urtext/Cargo.toml
+          touch ../urtext/src/lib.rs
       - name: Build and test (lib, integration, examples)
         run: |
           cargo build --release
@@ -36,6 +47,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - name: Stub the urtext sibling (see the test job)
+        run: |
+          mkdir -p ../urtext/src
+          printf '[package]\nname = "urtext"\nversion = "0.0.0"\nedition = "2021"\n' > ../urtext/Cargo.toml
+          touch ../urtext/src/lib.rs
       - name: Constitution self-host
         run: |
           cargo run -q --bin canon-demo -- constitution --json \
@@ -43,3 +59,45 @@ jobs:
             | grep -E '"constitution_root"|"keystone_cid"|"self_hosts"|"exit"'
       - name: Golden vectors (the binding drift gate)
         run: cargo test --test golden
+
+  intake-gate:
+    # The intake spine's interface contract (INTAKE.md Unit 1 / U5):
+    #   exit 0 = clean corpus, exit 1 = findings (needs_review/blocked),
+    #   exit 2 = environment error — and the corpus graph is deterministic
+    #   (byte-identical across runs). A gate that can't tell "found a problem"
+    #   from "couldn't run" is not a gate.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Stub the urtext sibling (see the test job)
+        run: |
+          mkdir -p ../urtext/src
+          printf '[package]\nname = "urtext"\nversion = "0.0.0"\nedition = "2021"\n' > ../urtext/Cargo.toml
+          touch ../urtext/src/lib.rs
+      - name: Build
+        run: cargo build --release --bin canon-demo
+      - name: Exit-code contract
+        run: |
+          B=target/release/canon-demo
+
+          # Clean corpus -> 0
+          "$B" intake-corpus tests/fixtures/intake --json > /dev/null
+
+          # W4 typo'd lineage target -> 1, and the finding names the subject
+          rc=0
+          "$B" intake-corpus tests/fixtures/intake_findings --json > findings.json || rc=$?
+          test "$rc" -eq 1
+          grep -q unresolved_lineage_target findings.json
+          grep -q klein_bottel findings.json
+
+          # Missing input -> 2 (environment error, not a finding)
+          rc=0
+          "$B" intake-corpus tests/fixtures/no_such_dir --json > /dev/null 2>&1 || rc=$?
+          test "$rc" -eq 2
+      - name: Graph determinism
+        run: |
+          B=target/release/canon-demo
+          "$B" intake-corpus tests/fixtures/intake --json --emit-graph-json g1.json > /dev/null
+          "$B" intake-corpus tests/fixtures/intake --json --emit-graph-json g2.json > /dev/null
+          cmp g1.json g2.json

@@ -75,7 +75,10 @@ pub struct Claim {
 pub fn redundant(claims: &[Claim]) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for q in claims {
-        if claims.iter().any(|p| p.cid != q.cid && p.interval.strictly_subsumes(&q.interval)) {
+        if claims
+            .iter()
+            .any(|p| p.cid != q.cid && p.interval.strictly_subsumes(&q.interval))
+        {
             out.insert(q.cid.clone());
         }
     }
@@ -87,7 +90,11 @@ pub fn redundant(claims: &[Claim]) -> BTreeSet<String> {
 /// weaker claim is recoverable by subsumption rather than by storage.
 pub fn maximal_antichain(claims: &[Claim]) -> Vec<String> {
     let red = redundant(claims);
-    claims.iter().filter(|c| !red.contains(&c.cid)).map(|c| c.cid.clone()).collect()
+    claims
+        .iter()
+        .filter(|c| !red.contains(&c.cid))
+        .map(|c| c.cid.clone())
+        .collect()
 }
 
 /// Entailment edges `(weaker, stronger)`: for each strict subsumption `P ⊊ Q`, an
@@ -120,9 +127,18 @@ mod tests {
     // Ω_Λ claims at three resolutions: 13/19 ≈ 0.6842 ⊊ [0.67,0.69] ⊊ [0.6,0.7]
     fn omega_claims() -> Vec<Claim> {
         vec![
-            Claim { cid: "precise".into(), interval: RatInterval::point(r(13, 19)) },
-            Claim { cid: "approx".into(), interval: RatInterval::new(r(67, 100), r(69, 100)).unwrap() },
-            Claim { cid: "loose".into(), interval: RatInterval::new(r(3, 5), r(7, 10)).unwrap() },
+            Claim {
+                cid: "precise".into(),
+                interval: RatInterval::point(r(13, 19)),
+            },
+            Claim {
+                cid: "approx".into(),
+                interval: RatInterval::new(r(67, 100), r(69, 100)).unwrap(),
+            },
+            Claim {
+                cid: "loose".into(),
+                interval: RatInterval::new(r(3, 5), r(7, 10)).unwrap(),
+            },
         ]
     }
 
@@ -130,18 +146,34 @@ mod tests {
     fn subsumes_is_exact_interval_containment() {
         let c = omega_claims();
         let (precise, approx, loose) = (&c[0].interval, &c[1].interval, &c[2].interval);
-        assert!(precise.subsumes(approx) && approx.subsumes(loose), "tighter ⊢ looser");
-        assert!(!loose.subsumes(precise), "the loose claim does not subsume the precise one");
+        assert!(
+            precise.subsumes(approx) && approx.subsumes(loose),
+            "tighter ⊢ looser"
+        );
+        assert!(
+            !loose.subsumes(precise),
+            "the loose claim does not subsume the precise one"
+        );
         assert!(precise.strictly_subsumes(loose));
-        assert!(!precise.strictly_subsumes(precise), "a claim does not strictly subsume itself");
+        assert!(
+            !precise.strictly_subsumes(precise),
+            "a claim does not strictly subsume itself"
+        );
     }
 
     #[test]
     fn redundant_and_antichain_keep_only_the_strongest() {
         let red = redundant(&omega_claims());
         let want: BTreeSet<String> = ["approx", "loose"].into_iter().map(String::from).collect();
-        assert_eq!(red, want, "the coarsenings are redundant — already entailed");
-        assert_eq!(maximal_antichain(&omega_claims()), vec!["precise".to_string()], "commit only the strongest");
+        assert_eq!(
+            red, want,
+            "the coarsenings are redundant — already entailed"
+        );
+        assert_eq!(
+            maximal_antichain(&omega_claims()),
+            vec!["precise".to_string()],
+            "commit only the strongest"
+        );
     }
 
     #[test]
@@ -161,13 +193,22 @@ mod tests {
 
     #[test]
     fn stronger_claim_dethrones_weaker_incumbent() {
-        let loose = Claim { cid: "loose".into(), interval: RatInterval::new(r(3, 5), r(7, 10)).unwrap() };
+        let loose = Claim {
+            cid: "loose".into(),
+            interval: RatInterval::new(r(3, 5), r(7, 10)).unwrap(),
+        };
         // the incumbent alone is not redundant — nothing stronger exists yet
         assert!(redundant(std::slice::from_ref(&loose)).is_empty());
         // a forced, precise claim arrives → the loose incumbent becomes redundant.
         // Subsumption is the dissipation: forcing dethrones the weaker account.
-        let precise = Claim { cid: "precise".into(), interval: RatInterval::point(r(13, 19)) };
+        let precise = Claim {
+            cid: "precise".into(),
+            interval: RatInterval::point(r(13, 19)),
+        };
         let red = redundant(&[loose, precise]);
-        assert!(red.contains("loose") && !red.contains("precise"), "the stronger claim dethrones the weaker");
+        assert!(
+            red.contains("loose") && !red.contains("precise"),
+            "the stronger claim dethrones the weaker"
+        );
     }
 }

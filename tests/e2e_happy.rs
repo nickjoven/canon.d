@@ -14,9 +14,7 @@
 mod common;
 use common::{build_closure, omega_corpus, trusted_log};
 
-use canon_d::{
-    audit_anchor, consensus_root, proposition_schema, structure, verify_regeneration,
-};
+use canon_d::{audit_anchor, consensus_root, proposition_schema, structure, verify_regeneration};
 
 /// Seam 1 — **regeneration link**: the serialized fact is the faithful, reproducible
 /// output of its claimed generator (the strongest cryptographic link in the chain).
@@ -24,8 +22,14 @@ use canon_d::{
 fn regeneration_link_reproduces_the_fact() {
     let c = omega_corpus();
     assert!(
-        verify_regeneration(&c.program, &[], "omega_lambda", "harmonics", &c.proposition.cid)
-            .unwrap(),
+        verify_regeneration(
+            &c.program,
+            &[],
+            "omega_lambda",
+            "harmonics",
+            &c.proposition.cid
+        )
+        .unwrap(),
         "the generator re-run reproduces exactly the proposition's CID"
     );
 }
@@ -52,7 +56,12 @@ fn anchor_accuracy_is_auditable() {
     let (log, trusted) = trusted_log(&c);
     assert!(log.verify(), "the transparency log itself is untampered");
 
-    let audit = audit_anchor(&c.anchor.cid, std::slice::from_ref(&c.vouch), &trusted, &log);
+    let audit = audit_anchor(
+        &c.anchor.cid,
+        std::slice::from_ref(&c.vouch),
+        &trusted,
+        &log,
+    );
     assert!(
         audit.is_auditable(),
         "a trusted party vouched AND the vouch is logged ⇒ auditable"

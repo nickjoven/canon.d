@@ -63,7 +63,10 @@ pub fn dedup_gate(
         let disp = if known_cids.contains(&c.cid) {
             skipped += 1;
             Disposition::Known { by: c.cid.clone() }
-        } else if let Some(k) = known_claims.iter().find(|k| k.interval.strictly_subsumes(&c.interval)) {
+        } else if let Some(k) = known_claims
+            .iter()
+            .find(|k| k.interval.strictly_subsumes(&c.interval))
+        {
             skipped += 1;
             Disposition::Entailed { by: k.cid.clone() }
         } else {
@@ -72,7 +75,11 @@ pub fn dedup_gate(
         };
         items.push((c.label.clone(), disp));
     }
-    DedupReport { items, novel, skipped }
+    DedupReport {
+        items,
+        novel,
+        skipped,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +139,12 @@ pub fn reconcile_gate(
     } else {
         GateOutcome::Pass
     };
-    Ok(ReconcileReport { verdicts, falsified, tension, outcome })
+    Ok(ReconcileReport {
+        verdicts,
+        falsified,
+        tension,
+        outcome,
+    })
 }
 
 #[cfg(test)]
@@ -166,19 +178,37 @@ mod tests {
     #[test]
     fn dedup_skips_known_and_entailed_computes_novel() {
         let known_cids: BTreeSet<String> = ["already-sealed".to_string()].into_iter().collect();
-        let known_claims = vec![Claim { cid: "precise".into(), interval: ival(13, 19) }];
+        let known_claims = vec![Claim {
+            cid: "precise".into(),
+            interval: ival(13, 19),
+        }];
 
         let candidates = vec![
             // exact CID present → Known
-            Candidate { label: "dup".into(), cid: "already-sealed".into(), interval: ival(1, 2) },
+            Candidate {
+                label: "dup".into(),
+                cid: "already-sealed".into(),
+                interval: ival(1, 2),
+            },
             // [0.6,0.7] is entailed by the stronger 13/19 → Entailed
-            Candidate { label: "coarse".into(), cid: "new1".into(), interval: band((3, 5), (7, 10)) },
+            Candidate {
+                label: "coarse".into(),
+                cid: "new1".into(),
+                interval: band((3, 5), (7, 10)),
+            },
             // 1/3 is not subsumed → Novel
-            Candidate { label: "novel".into(), cid: "new2".into(), interval: ival(1, 3) },
+            Candidate {
+                label: "novel".into(),
+                cid: "new2".into(),
+                interval: ival(1, 3),
+            },
         ];
 
         let r = dedup_gate(&candidates, &known_cids, &known_claims);
-        assert_eq!(r.skipped, 2, "known + entailed are skipped — compute avoided");
+        assert_eq!(
+            r.skipped, 2,
+            "known + entailed are skipped — compute avoided"
+        );
         assert_eq!(r.novel, vec!["novel".to_string()]);
         assert!(matches!(r.items[0].1, Disposition::Known { .. }));
         assert!(matches!(&r.items[1].1, Disposition::Entailed { by } if by == "precise"));

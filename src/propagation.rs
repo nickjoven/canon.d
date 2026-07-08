@@ -138,7 +138,11 @@ pub fn calibrate_floor(spectrum: &[f64]) -> Option<Calibration> {
     let mut sorted = ratios.clone();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let median = sorted[sorted.len() / 2];
-    let separation = if median > 0.0 { bratio / median } else { bratio };
+    let separation = if median > 0.0 {
+        bratio / median
+    } else {
+        bratio
+    };
     Some(Calibration { floor, separation })
 }
 
@@ -166,15 +170,26 @@ mod tests {
         // a coarse plateau (1.0, 0.9, 0.85) and a fine band (0.2, 0.15, 0.1) with a
         // gap between — the floor lands in the gap, separation stands out.
         let c = calibrate_floor(&[1.0, 0.9, 0.85, 0.2, 0.15, 0.1]).unwrap();
-        assert!(c.floor > 0.2 && c.floor < 0.85, "floor sits in the gap: {}", c.floor);
-        assert!(c.separation > 2.0, "the gap clearly stands out: {}", c.separation);
+        assert!(
+            c.floor > 0.2 && c.floor < 0.85,
+            "floor sits in the gap: {}",
+            c.floor
+        );
+        assert!(
+            c.separation > 2.0,
+            "the gap clearly stands out: {}",
+            c.separation
+        );
     }
 
     #[test]
     fn uniform_spectrum_reports_no_separation() {
         // pure geometric decay: every gap is the same ratio → no distinguished cut.
         let c = calibrate_floor(&[1.0, 0.5, 0.25, 0.125, 0.0625]).unwrap();
-        assert!((c.separation - 1.0).abs() < 1e-9, "uniform ⇒ separation ≈ 1 (flooring is lossy)");
+        assert!(
+            (c.separation - 1.0).abs() < 1e-9,
+            "uniform ⇒ separation ≈ 1 (flooring is lossy)"
+        );
     }
 
     #[test]
@@ -187,9 +202,20 @@ mod tests {
     fn floor_for_budget_admits_exactly_k() {
         let spec = [1.0, 0.5, 0.25, 0.125];
         let f = floor_for_budget(&spec, 2);
-        assert_eq!(spec.iter().filter(|&&a| a >= f).count(), 2, "exactly 2 above the floor");
-        assert_eq!(floor_for_budget(&spec, 9), 0.0, "budget covers all ⇒ exact (floor 0)");
-        assert!(floor_for_budget(&spec, 0) > 1.0, "budget 0 ⇒ floor above the max");
+        assert_eq!(
+            spec.iter().filter(|&&a| a >= f).count(),
+            2,
+            "exactly 2 above the floor"
+        );
+        assert_eq!(
+            floor_for_budget(&spec, 9),
+            0.0,
+            "budget covers all ⇒ exact (floor 0)"
+        );
+        assert!(
+            floor_for_budget(&spec, 0) > 1.0,
+            "budget 0 ⇒ floor above the max"
+        );
     }
 
     // a keystone `a`, then a line of consequences grounded outward: b←a, c←b, …
@@ -198,7 +224,11 @@ mod tests {
             .iter()
             .map(|s| {
                 let (from, to) = s.split_once(' ').unwrap();
-                TypedEdge { from: from.into(), to: to.into(), kind: "grounds".into() }
+                TypedEdge {
+                    from: from.into(),
+                    to: to.into(),
+                    kind: "grounds".into(),
+                }
             })
             .collect()
     }
@@ -208,10 +238,17 @@ mod tests {
         let e = line();
         // low channel (atten 0.9): a change at the keystone reaches the whole line
         let lo = propagate("a", 1.0, &e, 0.9, 0.3);
-        assert_eq!(lo.len(), 5, "low-channel/low-attenuation propagates outward");
+        assert_eq!(
+            lo.len(),
+            5,
+            "low-channel/low-attenuation propagates outward"
+        );
         // high channel (atten 0.3): dies after ~1 hop above the same floor
         let hi = propagate("a", 1.0, &e, 0.3, 0.3);
-        assert!(hi.len() < lo.len() && hi.contains_key("a"), "high-channel dissipates locally");
+        assert!(
+            hi.len() < lo.len() && hi.contains_key("a"),
+            "high-channel dissipates locally"
+        );
     }
 
     #[test]
@@ -220,7 +257,10 @@ mod tests {
         let full = reach("a", &e); // eager: the whole transitive set
         assert_eq!(full, 5);
         let floored = propagate("a", 1.0, &e, 0.5, 0.2).len();
-        assert!(floored < full, "the floor stops the expensive far steps — fewer nodes touched");
+        assert!(
+            floored < full,
+            "the floor stops the expensive far steps — fewer nodes touched"
+        );
     }
 
     #[test]
@@ -228,16 +268,29 @@ mod tests {
         let e = line();
         let big = propagate("a", 1.0, &e, 0.5, 0.1);
         let small = propagate("a", 0.2, &e, 0.5, 0.1);
-        assert!(small.len() < big.len(), "a smaller change reaches less far at the same floor");
+        assert!(
+            small.len() < big.len(),
+            "a smaller change reaches less far at the same floor"
+        );
     }
 
     #[test]
     fn peripheral_change_is_local_for_free() {
         let e = line();
         // `e` is a leaf — nothing is grounded in it, so a change there touches only itself.
-        assert_eq!(propagate("e", 1.0, &e, 0.9, 0.1).keys().collect::<Vec<_>>(), vec!["e"]);
-        assert_eq!(reach("e", &e), 1, "a fine peripheral node has reach 1 — laziness by structure");
-        assert!(reach("a", &e) > reach("e", &e), "the keystone is gravitational; the leaf is not");
+        assert_eq!(
+            propagate("e", 1.0, &e, 0.9, 0.1).keys().collect::<Vec<_>>(),
+            vec!["e"]
+        );
+        assert_eq!(
+            reach("e", &e),
+            1,
+            "a fine peripheral node has reach 1 — laziness by structure"
+        );
+        assert!(
+            reach("a", &e) > reach("e", &e),
+            "the keystone is gravitational; the leaf is not"
+        );
     }
 
     #[test]

@@ -81,10 +81,8 @@ impl CrossTopologyView {
     /// Returns bridges sorted by mapping_count descending.
     pub fn domain_bridges(&self) -> Vec<DomainBridge> {
         // Accumulator: (source_domain, target_domain) -> (count, source_fields, target_fields, confidence_sum)
-        let mut acc: HashMap<
-            (String, String),
-            (usize, HashSet<String>, HashSet<String>, f64),
-        > = HashMap::new();
+        let mut acc: HashMap<(String, String), (usize, HashSet<String>, HashSet<String>, f64)> =
+            HashMap::new();
 
         for mappings in self.mappings.values() {
             for m in mappings {
@@ -97,9 +95,9 @@ impl CrossTopologyView {
                     None => continue,
                 };
 
-                let entry = acc.entry((src_dom, tgt_dom)).or_insert_with(|| {
-                    (0, HashSet::new(), HashSet::new(), 0.0)
-                });
+                let entry = acc
+                    .entry((src_dom, tgt_dom))
+                    .or_insert_with(|| (0, HashSet::new(), HashSet::new(), 0.0));
                 entry.0 += 1;
                 entry.1.insert(m.source_field.clone());
                 entry.2.insert(m.target_field.clone());
@@ -109,18 +107,20 @@ impl CrossTopologyView {
 
         let mut bridges: Vec<DomainBridge> = acc
             .into_iter()
-            .map(|((src, tgt), (count, src_fields, tgt_fields, conf_sum))| DomainBridge {
-                source_domain: src,
-                target_domain: tgt,
-                mapping_count: count,
-                source_coverage: src_fields.len(),
-                target_coverage: tgt_fields.len(),
-                avg_confidence: if count > 0 {
-                    conf_sum / count as f64
-                } else {
-                    0.0
+            .map(
+                |((src, tgt), (count, src_fields, tgt_fields, conf_sum))| DomainBridge {
+                    source_domain: src,
+                    target_domain: tgt,
+                    mapping_count: count,
+                    source_coverage: src_fields.len(),
+                    target_coverage: tgt_fields.len(),
+                    avg_confidence: if count > 0 {
+                        conf_sum / count as f64
+                    } else {
+                        0.0
+                    },
                 },
-            })
+            )
             .collect();
 
         bridges.sort_by(|a, b| b.mapping_count.cmp(&a.mapping_count));
@@ -150,7 +150,10 @@ impl CrossTopologyView {
             let has_confidence_spread = {
                 let confidences: Vec<f64> = mappings.iter().map(|m| m.confidence).collect();
                 let min = confidences.iter().cloned().fold(f64::INFINITY, f64::min);
-                let max = confidences.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let max = confidences
+                    .iter()
+                    .cloned()
+                    .fold(f64::NEG_INFINITY, f64::max);
                 (max - min) > 0.1
             };
 
@@ -195,7 +198,10 @@ impl CrossTopologyView {
 
             let confidences: Vec<f64> = mappings.iter().map(|m| m.confidence).collect();
             let min = confidences.iter().cloned().fold(f64::INFINITY, f64::min);
-            let max = confidences.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let max = confidences
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max);
             let within_tolerance = (max - min) <= 0.1;
 
             let first_dir = &mappings[0].direction;
@@ -336,14 +342,40 @@ mod tests {
     #[test]
     fn domain_bridges_computed() {
         let domains = vec![
-            Domain::new("physics", 1).with_schema("schema_p1").with_schema("schema_p2"),
+            Domain::new("physics", 1)
+                .with_schema("schema_p1")
+                .with_schema("schema_p2"),
             Domain::new("math", 1).with_schema("schema_m1"),
         ];
 
         let mappings = vec![
-            make_mapping("schema_p1", "mass", "schema_m1", "value", 0.9, "claude", Direction::Forward),
-            make_mapping("schema_p1", "velocity", "schema_m1", "rate", 0.8, "claude", Direction::Forward),
-            make_mapping("schema_p2", "charge", "schema_m1", "quantity", 0.7, "claude", Direction::Forward),
+            make_mapping(
+                "schema_p1",
+                "mass",
+                "schema_m1",
+                "value",
+                0.9,
+                "claude",
+                Direction::Forward,
+            ),
+            make_mapping(
+                "schema_p1",
+                "velocity",
+                "schema_m1",
+                "rate",
+                0.8,
+                "claude",
+                Direction::Forward,
+            ),
+            make_mapping(
+                "schema_p2",
+                "charge",
+                "schema_m1",
+                "quantity",
+                0.7,
+                "claude",
+                Direction::Forward,
+            ),
         ];
 
         let view = CrossTopologyView::new(&domains, &mappings);
@@ -466,9 +498,15 @@ mod tests {
         ];
 
         // Bidirectional mapping: sa.x <-> sb.y
-        let mappings = vec![
-            make_mapping("sa", "x", "sb", "y", 0.9, "claude", Direction::Bidirectional),
-        ];
+        let mappings = vec![make_mapping(
+            "sa",
+            "x",
+            "sb",
+            "y",
+            0.9,
+            "claude",
+            Direction::Bidirectional,
+        )];
 
         let view = CrossTopologyView::new(&domains, &mappings);
         let paths = view.transitive_closure("sa", "x", 10);

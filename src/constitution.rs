@@ -27,13 +27,13 @@ use std::collections::BTreeSet;
 
 use serde_json::{json, Value};
 
+use crate::quantum::schema_cid;
 use crate::{
     assertion_schema, attestation_schema, consensus_root, edge_annotation_schema, export,
     generator_schema, mapping_schema, proposition_schema, structuring_schema, utterance_schema,
-    verification_schema, Bundle, BundleEntry, Closure, FieldKind, Quantum, Rule, Schema, SchemaKind,
-    TransparencyLog,
+    verification_schema, Bundle, BundleEntry, Closure, FieldKind, Quantum, Rule, Schema,
+    SchemaKind, TransparencyLog,
 };
-use crate::quantum::schema_cid;
 
 /// The meta-schema: the grammar of grammars. Its instances describe a [`Schema`].
 ///
@@ -65,7 +65,11 @@ pub fn schema_schema() -> Schema {
 pub fn role_census(s: &Schema) -> String {
     let i = s.fields.iter().filter(|f| f.identity).count();
     let w = s.fields.iter().filter(|f| f.witness).count();
-    let p = s.fields.iter().filter(|f| !f.identity && !f.witness).count();
+    let p = s
+        .fields
+        .iter()
+        .filter(|f| !f.identity && !f.witness)
+        .count();
     format!("{}.v{}:i{i}w{w}p{p}", s.name, s.version)
 }
 
@@ -202,8 +206,8 @@ impl Constitution {
     ///    at the level of the laws themselves).
     pub fn self_hosts(&self) -> bool {
         let ms = schema_schema();
-        let fixpoint = self.meta.verify(&ms).unwrap_or(false)
-            && self.meta.body == seal_schema(&ms).body;
+        let fixpoint =
+            self.meta.verify(&ms).unwrap_or(false) && self.meta.body == seal_schema(&ms).body;
         let articles_ok = self
             .articles
             .iter()
@@ -244,7 +248,10 @@ pub fn seal_constitution() -> Constitution {
     let mut rules = Vec::new();
     for a in &articles {
         entries.push(BundleEntry::of(SchemaKind::Schema, &a.quantum));
-        rules.push(Rule { head: a.quantum.cid.clone(), body: vec![meta.cid.clone()] });
+        rules.push(Rule {
+            head: a.quantum.cid.clone(),
+            body: vec![meta.cid.clone()],
+        });
     }
     let root = export(
         entries,
@@ -261,7 +268,12 @@ pub fn seal_constitution() -> Constitution {
         canon_rule_cid: meta.cid.clone(),
     };
 
-    Constitution { meta, articles, root, treaty }
+    Constitution {
+        meta,
+        articles,
+        root,
+        treaty,
+    }
 }
 
 /// A direct settle-based root, kept for parity testing against the bundle path.
@@ -318,7 +330,10 @@ mod tests {
         let mut quanta: Vec<Quantum> = c.articles.iter().map(|a| a.quantum.clone()).collect();
         quanta.push(c.meta.clone());
         let conflicts = crate::cross_audit(&schema_schema(), &quanta).unwrap();
-        assert!(conflicts.is_empty(), "constitution must cross-audit clean: {conflicts:?}");
+        assert!(
+            conflicts.is_empty(),
+            "constitution must cross-audit clean: {conflicts:?}"
+        );
     }
 
     #[test]
@@ -333,7 +348,9 @@ mod tests {
         assert_ne!(a.cid, b.cid);
         let conflicts = crate::cross_audit(&schema_schema(), &[a, b]).unwrap();
         assert!(
-            conflicts.iter().any(|c| matches!(c, crate::CrossAuditConflict::UnderMerge { .. })),
+            conflicts
+                .iter()
+                .any(|c| matches!(c, crate::CrossAuditConflict::UnderMerge { .. })),
             "an unversioned law fork must surface as UnderMerge: {conflicts:?}"
         );
     }
@@ -342,10 +359,16 @@ mod tests {
     fn forged_census_fails_witness_verify() {
         let q = seal_schema(&crate::proposition_schema());
         assert!(q
-            .verify_witness(&schema_schema(), &json!({"census": role_census(&crate::proposition_schema())}))
+            .verify_witness(
+                &schema_schema(),
+                &json!({"census": role_census(&crate::proposition_schema())})
+            )
             .unwrap());
         assert!(!q
-            .verify_witness(&schema_schema(), &json!({"census": "proposition.v1:i9w9p9"}))
+            .verify_witness(
+                &schema_schema(),
+                &json!({"census": "proposition.v1:i9w9p9"})
+            )
             .unwrap());
     }
 
@@ -365,6 +388,9 @@ mod tests {
         assert_eq!(a.meta.cid, b.meta.cid);
         assert_eq!(a.root, b.root);
         // and the parity path agrees with the bundle path on the certain set
-        assert_eq!(settle_root(&a.meta, &a.articles), settle_root(&b.meta, &b.articles));
+        assert_eq!(
+            settle_root(&a.meta, &a.articles),
+            settle_root(&b.meta, &b.articles)
+        );
     }
 }

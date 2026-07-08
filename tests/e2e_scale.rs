@@ -66,7 +66,11 @@ fn warm_start_batching_equals_eager() {
     assert_eq!(lazy.pending(), 0, "settle drains the batch");
 
     // The PATH differed (per-delta cascade vs one batched fold); the ANSWER does not.
-    assert_eq!(lazy.certain(), eager.certain(), "batched settle == eager certain core");
+    assert_eq!(
+        lazy.certain(),
+        eager.certain(),
+        "batched settle == eager certain core"
+    );
     assert_eq!(*lazy.certain(), set(&["a", "P", "Q", "R"]));
     assert_eq!(
         consensus_root(&lazy),
@@ -92,9 +96,15 @@ fn floored_settle_is_sound_under_approximation() {
     c.settle_floored(1.0, 0.5, 0.3);
 
     // near nodes certain …
-    assert!(c.is_certain("a") && c.is_certain("P"), "above-floor near nodes settle");
+    assert!(
+        c.is_certain("a") && c.is_certain("P"),
+        "above-floor near nodes settle"
+    );
     // … far nodes deferred, not wrongly denied …
-    assert!(!c.is_certain("Q") && !c.is_certain("R"), "below-floor far nodes deferred");
+    assert!(
+        !c.is_certain("Q") && !c.is_certain("R"),
+        "below-floor far nodes deferred"
+    );
     // … the deferral is EXPLICIT (no silent drift) …
     assert!(c.pending() > 0, "the cut frontier is pending, queryable");
     // … and certainty is a SOUND UNDER-APPROXIMATION: subset of eager, never false.
@@ -107,7 +117,11 @@ fn floored_settle_is_sound_under_approximation() {
     // A full settle drains the deferred frontier to the EXACT eager core.
     c.settle();
     assert_eq!(c.pending(), 0, "settle drains the deferral");
-    assert_eq!(c.certain(), eager.certain(), "full settle recovers the exact core");
+    assert_eq!(
+        c.certain(),
+        eager.certain(),
+        "full settle recovers the exact core"
+    );
     assert_eq!(*c.certain(), set(&["a", "P", "Q", "R"]));
     assert_eq!(
         consensus_root(&c),
@@ -128,7 +142,11 @@ fn calibration_drives_the_floor() {
 
     let mut c = primed_chain();
     let spectrum = c.amplitude_spectrum(&["a"], 1.0, 0.5);
-    assert_eq!(spectrum.len(), 4, "a, P, Q, R all reachable — the full distribution");
+    assert_eq!(
+        spectrum.len(),
+        4,
+        "a, P, Q, R all reachable — the full distribution"
+    );
 
     // A budget-2 floor: settle exactly the coarse prefix {a, P}, defer {Q, R}.
     let floor = floor_for_budget(&spectrum, 2);
@@ -140,7 +158,11 @@ fn calibration_drives_the_floor() {
 
     c.stage_anchor("a");
     c.settle_floored(1.0, 0.5, floor);
-    assert_eq!(*c.certain(), set(&["a", "P"]), "the budget floor settles exactly the coarse 2");
+    assert_eq!(
+        *c.certain(),
+        set(&["a", "P"]),
+        "the budget floor settles exactly the coarse 2"
+    );
     assert!(c.pending() > 0, "the rest is deferred, explicitly");
 
     // Calibration reports honestly: a uniform/geometric chain has no distinguished
@@ -154,7 +176,11 @@ fn calibration_drives_the_floor() {
     // Full settle → exact core and the SAME consensus root as eager. The whole point:
     // calibration/flooring is about cost and path; the final answer is invariant.
     c.settle();
-    assert_eq!(c.certain(), eager.certain(), "full settle recovers the exact core");
+    assert_eq!(
+        c.certain(),
+        eager.certain(),
+        "full settle recovers the exact core"
+    );
     assert_eq!(*c.certain(), set(&["a", "P", "Q", "R"]));
     assert_eq!(
         consensus_root(&c),

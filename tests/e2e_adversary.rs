@@ -17,8 +17,8 @@ mod common;
 use common::{build_closure, omega_corpus};
 
 use canon_d::{
-    audit_anchor, consensus_root, cross_audit, proposition_schema, signing_key, verify_regeneration,
-    verify_vouch, vouch, CrossAuditConflict, Closure, Quantum, Vouch,
+    audit_anchor, consensus_root, cross_audit, proposition_schema, signing_key,
+    verify_regeneration, verify_vouch, vouch, Closure, CrossAuditConflict, Quantum, Vouch,
 };
 use serde_json::json;
 
@@ -76,8 +76,14 @@ fn substituted_fact_moves_the_consensus_root() {
     // build the same chain but ground the substituted fact instead of the real one
     let mut tampered = Closure::new();
     tampered.add_anchor(&c.anchor.cid);
-    tampered.add_rule(c.generator.cid.clone(), [c.anchor.cid.clone()].into_iter().collect());
-    tampered.add_rule(substituted.cid.clone(), [c.generator.cid.clone()].into_iter().collect());
+    tampered.add_rule(
+        c.generator.cid.clone(),
+        [c.anchor.cid.clone()].into_iter().collect(),
+    );
+    tampered.add_rule(
+        substituted.cid.clone(),
+        [c.generator.cid.clone()].into_iter().collect(),
+    );
 
     assert_ne!(
         honest_root,
@@ -96,8 +102,14 @@ fn buggy_generator_is_caught_by_verify_regeneration() {
 
     // the honest regeneration link holds
     assert!(
-        verify_regeneration(&c.program, &[], "omega_lambda", "harmonics", &c.proposition.cid)
-            .unwrap(),
+        verify_regeneration(
+            &c.program,
+            &[],
+            "omega_lambda",
+            "harmonics",
+            &c.proposition.cid
+        )
+        .unwrap(),
         "the generator reproduces the real fact"
     );
 
@@ -125,7 +137,10 @@ fn untrusted_or_forged_vouch_fails_the_audit() {
 
     // sanity: the honest vouch audits the anchor
     let honest = audit_anchor(&c.anchor.cid, &[c.vouch.clone()], &trusted, &log);
-    assert!(honest.is_auditable(), "the trusted, logged vouch audits the anchor");
+    assert!(
+        honest.is_auditable(),
+        "the trusted, logged vouch audits the anchor"
+    );
 
     // a stranger's key signs the *same* anchor: cryptographically valid …
     let stranger = vouch(&signing_key(&[1u8; 32]), &c.anchor.cid);
@@ -149,7 +164,10 @@ fn untrusted_or_forged_vouch_fails_the_audit() {
     );
     // and so it audits nothing
     let forged_audit = audit_anchor(&c.anchor.cid, &[forged], &trusted, &log);
-    assert!(!forged_audit.is_auditable(), "a forged vouch audits nothing");
+    assert!(
+        !forged_audit.is_auditable(),
+        "a forged vouch audits nothing"
+    );
 }
 
 /// 5. **Canonicalizer under-merge caught by cross_audit.** Two propositions with
@@ -172,7 +190,10 @@ fn canonicalizer_under_merge_is_caught_by_cross_audit() {
     )
     .unwrap();
     // the real fact equals the reduced form — the corpus's proposition
-    assert_eq!(reduced.cid, c.proposition.cid, "the reduced form is the honest fact");
+    assert_eq!(
+        reduced.cid, c.proposition.cid,
+        "the reduced form is the honest fact"
+    );
     assert_ne!(reduced.cid, unreduced.cid, "the two forms genuinely differ");
 
     let conflicts = cross_audit(&schema, &[reduced, unreduced]).unwrap();
@@ -206,8 +227,14 @@ fn corroboration_is_not_a_false_positive() {
         &json!({"subject":"omega_lambda","num":13,"den":19,"value":"13/19"}),
     )
     .unwrap();
-    assert_eq!(via_planck.cid, via_wmap.cid, "two tellings of one value → one proposition CID");
-    assert_eq!(via_planck.cid, c.proposition.cid, "and it is the corpus's honest fact");
+    assert_eq!(
+        via_planck.cid, via_wmap.cid,
+        "two tellings of one value → one proposition CID"
+    );
+    assert_eq!(
+        via_planck.cid, c.proposition.cid,
+        "and it is the corpus's honest fact"
+    );
 
     let conflicts: Vec<CrossAuditConflict> = cross_audit(&schema, &[via_planck, via_wmap]).unwrap();
     assert!(

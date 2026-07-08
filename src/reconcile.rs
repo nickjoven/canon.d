@@ -40,7 +40,9 @@ pub enum Agreement {
 impl Agreement {
     pub fn z(&self) -> f64 {
         match self {
-            Agreement::Consistent { z } | Agreement::Tension { z } | Agreement::Falsified { z } => *z,
+            Agreement::Consistent { z } | Agreement::Tension { z } | Agreement::Falsified { z } => {
+                *z
+            }
         }
     }
     pub fn label(&self) -> &'static str {
@@ -68,7 +70,10 @@ pub struct Tolerance {
 
 impl Default for Tolerance {
     fn default() -> Self {
-        Tolerance { consistent_sigma: 2.0, falsify_sigma: 5.0 }
+        Tolerance {
+            consistent_sigma: 2.0,
+            falsify_sigma: 5.0,
+        }
     }
 }
 
@@ -114,7 +119,8 @@ pub fn reconcile_quanta(
     attestation: &Quantum,
     tol: &Tolerance,
 ) -> Result<Agreement, ReconcileError> {
-    let value = input_value(derived).map_err(|_| ReconcileError::NotValueBearing(derived.cid.clone()))?;
+    let value =
+        input_value(derived).map_err(|_| ReconcileError::NotValueBearing(derived.cid.clone()))?;
     let measured = attestation
         .field("value")
         .and_then(|v| v.as_f64())
@@ -180,7 +186,12 @@ mod tests {
     #[test]
     fn omega_lambda_13_19_is_consistent_at_about_007_sigma() {
         // the framework's headline: 13/19 vs Planck Ω_Λ = 0.6847 ± 0.0073 ≈ 0.07σ
-        let a = reconcile_quanta(&ratio("omega_lambda", 13, 19), &planck_omega(), &Tolerance::default()).unwrap();
+        let a = reconcile_quanta(
+            &ratio("omega_lambda", 13, 19),
+            &planck_omega(),
+            &Tolerance::default(),
+        )
+        .unwrap();
         assert!(a.is_consistent(), "13/19 agrees with Planck: {a:?}");
         assert!(a.z() < 0.1, "the residual is ~0.07σ, got {}", a.z());
     }
@@ -188,7 +199,12 @@ mod tests {
     #[test]
     fn a_wrong_value_is_falsified() {
         // 1/2 = 0.5 vs 0.6847 ± 0.0073 ≈ 25σ
-        let a = reconcile_quanta(&ratio("omega_lambda", 1, 2), &planck_omega(), &Tolerance::default()).unwrap();
+        let a = reconcile_quanta(
+            &ratio("omega_lambda", 1, 2),
+            &planck_omega(),
+            &Tolerance::default(),
+        )
+        .unwrap();
         assert!(a.is_falsified(), "1/2 contradicts Planck: {a:?}");
         assert!(a.z() > 5.0);
     }
@@ -196,7 +212,12 @@ mod tests {
     #[test]
     fn a_near_miss_is_tension() {
         // 12/17 ≈ 0.7059 vs 0.6847 ± 0.0073 ≈ 2.9σ — between 2σ and 5σ
-        let a = reconcile_quanta(&ratio("omega_lambda", 12, 17), &planck_omega(), &Tolerance::default()).unwrap();
+        let a = reconcile_quanta(
+            &ratio("omega_lambda", 12, 17),
+            &planck_omega(),
+            &Tolerance::default(),
+        )
+        .unwrap();
         assert!(matches!(a, Agreement::Tension { .. }), "got {a:?}");
         assert!(a.z() > 2.0 && a.z() < 5.0);
     }
@@ -220,15 +241,29 @@ mod tests {
         let anchor = planck_omega();
         let a = reconcile_quanta(&derived, &anchor, &Tolerance::default()).unwrap();
         let v = seal_verification(&derived, &anchor, &a).unwrap();
-        assert_eq!(v.field("verdict").and_then(|x| x.as_str()), Some("consistent"));
+        assert_eq!(
+            v.field("verdict").and_then(|x| x.as_str()),
+            Some("consistent")
+        );
 
         // same (derived, against) → same identity, so a later re-reconciliation
         // (e.g. tighter σ → a different verdict) supersedes rather than coexists.
         let vs = verification_schema();
         let canon = crate::Canon::new(&vs);
-        let id1 = canon.identity_projection(&json!({"derived":derived.cid,"against":anchor.cid,"verdict":"consistent"})).unwrap();
-        let id2 = canon.identity_projection(&json!({"derived":derived.cid,"against":anchor.cid,"verdict":"tension"})).unwrap();
-        assert_eq!(id1, id2, "the verdict is correctable — re-reconciling supersedes");
+        let id1 = canon
+            .identity_projection(
+                &json!({"derived":derived.cid,"against":anchor.cid,"verdict":"consistent"}),
+            )
+            .unwrap();
+        let id2 = canon
+            .identity_projection(
+                &json!({"derived":derived.cid,"against":anchor.cid,"verdict":"tension"}),
+            )
+            .unwrap();
+        assert_eq!(
+            id1, id2,
+            "the verdict is correctable — re-reconciling supersedes"
+        );
     }
 
     #[test]
@@ -239,13 +274,22 @@ mod tests {
         let anchor = planck_omega();
         let mut cl = Closure::new();
         cl.add_anchor("planck_root");
-        cl.add_rule(derived.cid.clone(), [String::from("planck_root")].into_iter().collect());
-        assert!(cl.is_certain(&derived.cid), "structurally grounded → certain");
+        cl.add_rule(
+            derived.cid.clone(),
+            [String::from("planck_root")].into_iter().collect(),
+        );
+        assert!(
+            cl.is_certain(&derived.cid),
+            "structurally grounded → certain"
+        );
 
         let a = reconcile_quanta(&derived, &anchor, &Tolerance::default()).unwrap();
         if a.is_falsified() {
             cl.mark_contested(&derived.cid);
         }
-        assert!(!cl.is_certain(&derived.cid), "a falsified fact is contested out of the certain core");
+        assert!(
+            !cl.is_certain(&derived.cid),
+            "a falsified fact is contested out of the certain core"
+        );
     }
 }

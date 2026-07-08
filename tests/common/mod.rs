@@ -55,9 +55,18 @@ pub fn ground(cid: &str) -> BTreeSet<String> {
 pub fn omega_claims() -> Vec<Claim> {
     let r = |n: i64, d: i64| Rat::new(n, d).unwrap();
     vec![
-        Claim { cid: "precise".into(), interval: RatInterval::point(r(13, 19)) },
-        Claim { cid: "approx".into(), interval: RatInterval::new(r(67, 100), r(69, 100)).unwrap() },
-        Claim { cid: "loose".into(), interval: RatInterval::new(r(3, 5), r(7, 10)).unwrap() },
+        Claim {
+            cid: "precise".into(),
+            interval: RatInterval::point(r(13, 19)),
+        },
+        Claim {
+            cid: "approx".into(),
+            interval: RatInterval::new(r(67, 100), r(69, 100)).unwrap(),
+        },
+        Claim {
+            cid: "loose".into(),
+            interval: RatInterval::new(r(3, 5), r(7, 10)).unwrap(),
+        },
     ]
 }
 

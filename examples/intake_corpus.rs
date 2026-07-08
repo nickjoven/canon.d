@@ -49,7 +49,9 @@ mod real {
     const DEFAULT_CORPUS: &str = "/home/nick/code/harmonics/sync_cost/derivations";
 
     pub fn run() {
-        let dir = std::env::args().nth(1).unwrap_or_else(|| DEFAULT_CORPUS.to_string());
+        let dir = std::env::args()
+            .nth(1)
+            .unwrap_or_else(|| DEFAULT_CORPUS.to_string());
         let mut files = Vec::new();
         collect_md(Path::new(&dir), &mut files);
         files.sort();
@@ -68,7 +70,9 @@ mod real {
         let mut review_samples: Vec<String> = Vec::new();
 
         for path in &files {
-            let Ok(text) = fs::read_to_string(path) else { continue };
+            let Ok(text) = fs::read_to_string(path) else {
+                continue;
+            };
             for line in text.lines() {
                 if line.trim().is_empty() {
                     continue;
@@ -77,7 +81,9 @@ mod real {
                 // Two independent routes read each line; where they agree, the
                 // cross-audit will see the corroboration.
                 for route in [Route::Prefix, Route::Postfix] {
-                    let Ok(s) = structure_span_with(line, "en", &lex, route) else { continue };
+                    let Ok(s) = structure_span_with(line, "en", &lex, route) else {
+                        continue;
+                    };
                     attributed += s.structured.len();
                     values_lifted += s.structured.len() + s.needs_review.len();
                     structurings.extend(s.structured);
@@ -130,7 +136,10 @@ mod real {
         if !report.queued.is_empty() {
             println!("\n── queued by the domain witness (the residual, now caught) ──");
             for q in report.queued.iter().take(6) {
-                println!("  {:>4}×  {} = {}   — {}", q.corroboration, q.subject, q.value, q.reason);
+                println!(
+                    "  {:>4}×  {} = {}   — {}",
+                    q.corroboration, q.subject, q.value, q.reason
+                );
             }
         }
 
@@ -144,7 +153,10 @@ mod real {
 
         println!("\n=== what changed since beats_grep ===");
         println!("beats_grep: a human told canon.d that 13/19 is Ω_Λ (one hand-scoped fact).");
-        println!("here: two independent routes attributed Ω_Λ across {} files themselves,", files.len());
+        println!(
+            "here: two independent routes attributed Ω_Λ across {} files themselves,",
+            files.len()
+        );
         println!("the domain witness caught the Ω_Λ = 12 residual, and every promoted fact");
         println!("carries its corroboration and the routes that agreed — nothing anonymous.");
     }
@@ -158,7 +170,9 @@ mod real {
     }
 
     fn collect_md(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
-        let Ok(entries) = fs::read_dir(dir) else { return };
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {

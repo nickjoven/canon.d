@@ -93,9 +93,18 @@ fn main() {
         &claim_body,
     )
     .unwrap();
-    println!("utterance    {}  (the lab note, sealed verbatim)", short(&s.utterance.cid));
-    println!("structuring  {}  (note -> claim, attributed to emitter:nick)", short(&s.structuring.cid));
-    println!("claim        {}  (major-axis = 110/1 um, dimension L, grounded)", short(&s.claim.cid));
+    println!(
+        "utterance    {}  (the lab note, sealed verbatim)",
+        short(&s.utterance.cid)
+    );
+    println!(
+        "structuring  {}  (note -> claim, attributed to emitter:nick)",
+        short(&s.structuring.cid)
+    );
+    println!(
+        "claim        {}  (major-axis = 110/1 um, dimension L, grounded)",
+        short(&s.claim.cid)
+    );
 
     // 4. Witness check. Recompute the dimension from the unit by the independent
     //    lookup and confirm it matches the sealed witness.

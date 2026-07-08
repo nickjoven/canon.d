@@ -40,7 +40,11 @@ fn main() {
         }),
     )
     .unwrap();
-    println!("attestation   {}  (witness-free, needs human vouch: {})", short(&att.cid), needs_review(&attestation_schema()));
+    println!(
+        "attestation   {}  (witness-free, needs human vouch: {})",
+        short(&att.cid),
+        needs_review(&attestation_schema())
+    );
 
     // 2. STRUCTURE — two human framings of one claim, each from a different NL utterance.
     let cs = ratio_claim_schema();
@@ -50,43 +54,83 @@ fn main() {
         "label": "Stern-Brocot depth-6 forcing",
         "prose": "the dark-energy fraction is thirteen nineteenths"
     });
-    let a = structure("the dark-energy fraction is thirteen nineteenths", "en", "claude", &cs, &body).unwrap();
-    let b = structure("Omega_Lambda = 13/19", "en", "claude",
-        &cs, &json!({"subject":"omega_lambda","num":13,"den":19,"grounds":[att.cid],
-                     "value":0.6842,"label":"Farey mediant 13/19"})).unwrap();
+    let a = structure(
+        "the dark-energy fraction is thirteen nineteenths",
+        "en",
+        "claude",
+        &cs,
+        &body,
+    )
+    .unwrap();
+    let b = structure(
+        "Omega_Lambda = 13/19",
+        "en",
+        "claude",
+        &cs,
+        &json!({"subject":"omega_lambda","num":13,"den":19,"grounds":[att.cid],
+                     "value":0.6842,"label":"Farey mediant 13/19"}),
+    )
+    .unwrap();
 
     println!("utterance A   {}", short(&a.utterance.cid));
-    println!("utterance B   {}   (distinct NL — paraphrases do not collapse)", short(&b.utterance.cid));
+    println!(
+        "utterance B   {}   (distinct NL — paraphrases do not collapse)",
+        short(&b.utterance.cid)
+    );
     println!("claim A       {}", short(&a.claim.cid));
-    println!("claim B       {}   <- SAME node: NL is projection, structure is identity", short(&b.claim.cid));
+    println!(
+        "claim B       {}   <- SAME node: NL is projection, structure is identity",
+        short(&b.claim.cid)
+    );
     assert_eq!(a.claim.cid, b.claim.cid);
 
     // 3. WITNESS — independent recomputation 13/19 = 0.6842 must agree with the form.
-    let ok = a.claim.verify_witness(&cs, &json!({"value": 0.6842})).unwrap();
-    let bad = a.claim.verify_witness(&cs, &json!({"value": 0.7000})).unwrap();
+    let ok = a
+        .claim
+        .verify_witness(&cs, &json!({"value": 0.6842}))
+        .unwrap();
+    let bad = a
+        .claim
+        .verify_witness(&cs, &json!({"value": 0.7000}))
+        .unwrap();
     println!("witness self-audit: correct value agrees={ok}, wrong value agrees={bad}");
 
     // 4. CROSS-AUDIT — plant a buggy emitter that forgot to reduce (26/38). Dedup
     //    sees two distinct forms; the witness route catches the under-merge.
-    let buggy = Quantum::seal(&cs, &json!({
-        "subject":"omega_lambda","num":26,"den":38,"grounds":[att.cid],"value":0.6842
-    })).unwrap();
+    let buggy = Quantum::seal(
+        &cs,
+        &json!({
+            "subject":"omega_lambda","num":26,"den":38,"grounds":[att.cid],"value":0.6842
+        }),
+    )
+    .unwrap();
     let conflicts = cross_audit(&cs, &[a.claim.clone(), buggy.clone()]).unwrap();
-    println!("cross-audit (reduced 13/19 vs unreduced 26/38): {} conflict(s)", conflicts.len());
+    println!(
+        "cross-audit (reduced 13/19 vs unreduced 26/38): {} conflict(s)",
+        conflicts.len()
+    );
     for c in &conflicts {
         println!("  - {c:?}");
     }
 
     // 5. GROUND-AUDIT — a claim grounded in a nonexistent CID is "about nothing".
-    let dangling = Quantum::seal(&cs, &json!({
-        "subject":"floating","num":1,"den":2,"grounds":["deadbeef"],"value":0.5
-    })).unwrap();
+    let dangling = Quantum::seal(
+        &cs,
+        &json!({
+            "subject":"floating","num":1,"den":2,"grounds":["deadbeef"],"value":0.5
+        }),
+    )
+    .unwrap();
     let mut known = BTreeSet::new();
     known.insert(att.cid.clone());
     let ungrounded = ground_audit("grounds", &[a.claim.clone(), dangling], &known);
     println!("ground-audit: {} ungrounded claim(s)", ungrounded.len());
     for u in &ungrounded {
-        println!("  - claim {} grounds on missing {}", short(&u.claim), u.missing);
+        println!(
+            "  - claim {} grounds on missing {}",
+            short(&u.claim),
+            u.missing
+        );
     }
 
     println!("\nthe reviewed entry is the grounded closure that survives the audit.");

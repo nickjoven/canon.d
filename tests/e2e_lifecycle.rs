@@ -45,9 +45,11 @@ fn incumbent_alone_then_dethroned_by_a_stronger_claim() {
 
     // The full trio: precise entails approx and loose, dethroning both.
     let red = redundant(&all);
-    let want: BTreeSet<String> =
-        ["approx", "loose"].into_iter().map(String::from).collect();
-    assert_eq!(red, want, "the coarsenings are dethroned by the precise claim");
+    let want: BTreeSet<String> = ["approx", "loose"].into_iter().map(String::from).collect();
+    assert_eq!(
+        red, want,
+        "the coarsenings are dethroned by the precise claim"
+    );
     assert_eq!(
         maximal_antichain(&all),
         vec!["precise".to_string()],
@@ -60,9 +62,18 @@ fn incumbent_alone_then_dethroned_by_a_stronger_claim() {
 #[test]
 fn certainty_flows_down_from_the_single_anchor() {
     let cl = certified_omega();
-    assert!(cl.is_certain("precise"), "the anchored strongest fact is certain");
-    assert!(cl.is_certain("approx"), "approx is certain for free — entailed by precise");
-    assert!(cl.is_certain("loose"), "loose is certain for free — entailed transitively");
+    assert!(
+        cl.is_certain("precise"),
+        "the anchored strongest fact is certain"
+    );
+    assert!(
+        cl.is_certain("approx"),
+        "approx is certain for free — entailed by precise"
+    );
+    assert!(
+        cl.is_certain("loose"),
+        "loose is certain for free — entailed transitively"
+    );
 }
 
 /// Step 3 — Retraction is non-monotone. Withdraw the strong anchor and its entire
@@ -70,16 +81,25 @@ fn certainty_flows_down_from_the_single_anchor() {
 #[test]
 fn retracting_the_strong_anchor_decertifies_the_borrowers() {
     let mut cl = certified_omega();
-    assert!(cl.is_certain("approx") && cl.is_certain("loose"), "certain before retraction");
+    assert!(
+        cl.is_certain("approx") && cl.is_certain("loose"),
+        "certain before retraction"
+    );
 
     cl.retract("precise");
 
-    assert!(!cl.is_certain("precise"), "the withdrawn anchor is no longer certain");
+    assert!(
+        !cl.is_certain("precise"),
+        "the withdrawn anchor is no longer certain"
+    );
     assert!(
         !cl.is_certain("approx"),
         "approx loses certainty — it had no grounding but the now-withdrawn precise"
     );
-    assert!(!cl.is_certain("loose"), "loose loses certainty for the same reason");
+    assert!(
+        !cl.is_certain("loose"),
+        "loose loses certainty for the same reason"
+    );
 }
 
 /// Step 4 — Contesting excludes and propagates. A contested fact is not certain and
@@ -91,15 +111,27 @@ fn contesting_the_strong_fact_excludes_it_and_what_rested_on_it() {
 
     // A separate, unrelated certain anchor — to show contesting is targeted, not global.
     cl.add_anchor("unrelated");
-    assert!(cl.is_certain("unrelated"), "the unrelated anchor is certain");
+    assert!(
+        cl.is_certain("unrelated"),
+        "the unrelated anchor is certain"
+    );
 
     cl.mark_contested("precise");
 
-    assert!(!cl.is_certain("precise"), "a contested fact is excluded from the certain core");
+    assert!(
+        !cl.is_certain("precise"),
+        "a contested fact is excluded from the certain core"
+    );
     assert!(
         !cl.is_certain("approx"),
         "what rested on the contested fact is not certain either"
     );
-    assert!(!cl.is_certain("loose"), "the contested fact cannot certify its coarsenings");
-    assert!(cl.is_certain("unrelated"), "the unrelated anchor stays certain — contesting is targeted");
+    assert!(
+        !cl.is_certain("loose"),
+        "the contested fact cannot certify its coarsenings"
+    );
+    assert!(
+        cl.is_certain("unrelated"),
+        "the unrelated anchor stays certain — contesting is targeted"
+    );
 }

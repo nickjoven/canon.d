@@ -223,7 +223,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "contains Float")]
     fn identity_rejects_nested_float() {
-        let _ = Schema::new("bad", 1).identity("values", FieldKind::List(Box::new(FieldKind::Float)));
+        let _ =
+            Schema::new("bad", 1).identity("values", FieldKind::List(Box::new(FieldKind::Float)));
     }
 
     #[test]

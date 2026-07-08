@@ -52,7 +52,10 @@ fn main() {
         }),
     )
     .expect("seal attestation");
-    println!("1. attestation   {}  (24 of 40 cells stained, observer-vouched)", short(&reading.cid));
+    println!(
+        "1. attestation   {}  (24 of 40 cells stained, observer-vouched)",
+        short(&reading.cid)
+    );
 
     // 2-4. The observer writes a sentence; the bridge seals it, records the
     //       structuring proposal, and seals the structured claim grounded on the
@@ -75,9 +78,18 @@ fn main() {
     )
     .expect("structure");
 
-    println!("2. utterance     {}  (the sentence, sealed verbatim)", short(&s.utterance.cid));
-    println!("3. structuring   {}  (utterance -> claim, attributed to observer:nick)", short(&s.structuring.cid));
-    println!("4. claim         {}  (sample=slide-7 trait=stained 3/5, grounded)", short(&s.claim.cid));
+    println!(
+        "2. utterance     {}  (the sentence, sealed verbatim)",
+        short(&s.utterance.cid)
+    );
+    println!(
+        "3. structuring   {}  (utterance -> claim, attributed to observer:nick)",
+        short(&s.structuring.cid)
+    );
+    println!(
+        "4. claim         {}  (sample=slide-7 trait=stained 3/5, grounded)",
+        short(&s.claim.cid)
+    );
 
     // A paraphrase of the same observation: different sentence, same structure.
     let s2 = structure(
@@ -90,19 +102,28 @@ fn main() {
     .expect("structure paraphrase");
     assert_ne!(s.utterance.cid, s2.utterance.cid);
     assert_eq!(s.claim.cid, s2.claim.cid);
-    println!("   paraphrase     utterance {} != ; claim {} ==  (NL projects, structure binds)",
-        short(&s2.utterance.cid), short(&s2.claim.cid));
+    println!(
+        "   paraphrase     utterance {} != ; claim {} ==  (NL projects, structure binds)",
+        short(&s2.utterance.cid),
+        short(&s2.claim.cid)
+    );
 
     // 5. WITNESS CHECK — recompute the reduced fraction from the count by an
     //    independent route (reduce 3/5) and confirm it matches the sealed witness.
     //    The claim schema declares a witness, so it self-checks rather than going
     //    to review.
     let recomputed = json!({ "fraction": rat_witness(3, 5).expect("3/5") });
-    let witness_ok = s.claim.verify_witness(&cs, &recomputed).expect("verify_witness");
+    let witness_ok = s
+        .claim
+        .verify_witness(&cs, &recomputed)
+        .expect("verify_witness");
     println!("5. witness        fraction recomputed (reduce 3/5) == sealed: {witness_ok}");
     assert!(witness_ok);
     assert!(!needs_review(&cs), "a claim with a witness self-checks");
-    assert!(needs_review(&attestation_schema()), "the reading is witness-free; reality is its witness");
+    assert!(
+        needs_review(&attestation_schema()),
+        "the reading is witness-free; reality is its witness"
+    );
 
     // A wrong reading is caught here, not trusted: claim 3/5 but sealed witness 7/10.
     let bad = Quantum::seal(
@@ -111,7 +132,9 @@ fn main() {
                 "grounds":[reading.cid],"fraction":rat_witness(7,10).expect("7/10")}),
     )
     .expect("seal bad");
-    let bad_ok = bad.verify_witness(&cs, &json!({"fraction": rat_witness(3, 5).expect("3/5")})).expect("verify");
+    let bad_ok = bad
+        .verify_witness(&cs, &json!({"fraction": rat_witness(3, 5).expect("3/5")}))
+        .expect("verify");
     println!("   tamper check   claim says 3/5 but witness sealed 7/10 -> verifies: {bad_ok}");
     assert!(!bad_ok);
 
@@ -127,10 +150,17 @@ fn main() {
                 "grounds":[reading.cid],"fraction":rat_witness(1,3).expect("1/3")}),
     )
     .expect("seal 1/3");
-    let third_ok = third.verify_witness(&cs, &json!({"fraction": rat_witness(2, 6).expect("2/6")})).expect("verify");
-    let third_bad = third.verify_witness(&cs, &json!({"fraction": rat_witness(1, 2).expect("1/2")})).expect("verify");
+    let third_ok = third
+        .verify_witness(&cs, &json!({"fraction": rat_witness(2, 6).expect("2/6")}))
+        .expect("verify");
+    let third_bad = third
+        .verify_witness(&cs, &json!({"fraction": rat_witness(1, 2).expect("1/2")}))
+        .expect("verify");
     println!("   exact 1/3      sealed 1/3 vs recompute 2/6 (reduces equal): {third_ok}; vs 1/2: {third_bad}");
-    assert!(third_ok, "1/3 verifies exactly — an f64 witness could not represent it to compare");
+    assert!(
+        third_ok,
+        "1/3 verifies exactly — an f64 witness could not represent it to compare"
+    );
     assert!(!third_bad);
 
     // 6. GROUND AUDIT — every grounding target must resolve to something sealed.
@@ -145,9 +175,13 @@ fn main() {
     )
     .expect("seal ungrounded");
     let report = ground_audit("grounds", &[s.claim.clone(), ungrounded.clone()], &known);
-    println!("6. ground audit   {} grounded, {} dangling ({} -> {})",
-        2 - report.len(), report.len(),
-        short(&report[0].claim), &report[0].missing);
+    println!(
+        "6. ground audit   {} grounded, {} dangling ({} -> {})",
+        2 - report.len(),
+        report.len(),
+        short(&report[0].claim),
+        &report[0].missing
+    );
     assert_eq!(report.len(), 1);
     assert_eq!(report[0].claim, ungrounded.cid);
 
