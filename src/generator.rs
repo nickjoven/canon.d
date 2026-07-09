@@ -209,6 +209,16 @@ impl Rat {
         format!("{}/{}", self.num, self.den)
     }
 
+    /// Reduced numerator (`Rat::new` reduces at construction; `den > 0`).
+    pub fn numerator(&self) -> i64 {
+        self.num
+    }
+
+    /// Reduced denominator (always positive).
+    pub fn denominator(&self) -> i64 {
+        self.den
+    }
+
     pub fn value(&self) -> f64 {
         self.num as f64 / self.den as f64
     }

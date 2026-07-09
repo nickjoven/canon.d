@@ -174,7 +174,7 @@ impl SubjectDomains {
 
 /// A proposition promoted to a fact: it passed the domain witness and is recorded
 /// with how strongly (and by which routes) it was corroborated.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Promoted {
     pub proposition: String,
     pub subject: String,
@@ -186,7 +186,7 @@ pub struct Promoted {
 }
 
 /// A proposition held back from promotion, with the reason a human must clear.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Queued {
     pub proposition: String,
     pub subject: String,
@@ -197,7 +197,7 @@ pub struct Queued {
 }
 
 /// The result of a cross-audit: what promoted and what was queued.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct CrossAuditReport {
     pub promoted: Vec<Promoted>,
     pub queued: Vec<Queued>,
@@ -338,7 +338,7 @@ fn int_field(q: &crate::Quantum, field: &str) -> i128 {
         .unwrap_or(0)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "prose"))]
 mod tests {
     use super::*;
     use crate::structurer::{structure_span_with, Route, SubjectLexicon};

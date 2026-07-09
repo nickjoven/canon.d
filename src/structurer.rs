@@ -28,7 +28,10 @@
 //! cross-audit that promotes agreement across structurers (Unit 2 proper) sits
 //! one layer up and consumes what this route emits.
 
+use std::collections::BTreeSet;
+
 use crate::bridge::{structure, Structuring};
+use crate::intake::{RatioClaim, Structurer, StructuringOutput};
 use crate::quantum::QuantumError;
 use crate::strata::proposition_schema;
 use serde_json::json;
@@ -72,16 +75,19 @@ impl SubjectLexicon {
     /// energy` 38×, `Omega_Lambda` 28×). A convenience starting point — a corpus
     /// with other subjects builds its own lexicon.
     pub fn harmonics() -> Self {
-        Self::new().with_cues(
-            "omega_lambda",
-            &[
-                "Ω_Λ",
-                "Omega_Lambda",
-                "Omega_L",
-                "dark energy fraction",
-                "dark energy",
-            ],
-        )
+        Self::new()
+            .with_cues(
+                "omega_lambda",
+                &[
+                    "Ω_Λ",
+                    "Omega_Lambda",
+                    "Omega_L",
+                    "dark energy fraction",
+                    "dark energy",
+                ],
+            )
+            .with_cues("omega_b", &["Ω_b", "Omega_b", "baryon fraction"])
+            .with_cues("omega_dm", &["Ω_DM", "Omega_DM", "dark matter fraction"])
     }
 
     /// The subject a `Prose` region *binds to the value that immediately follows
@@ -300,6 +306,58 @@ fn rat_extraction(subject: Option<String>, rat: &urtext::Rat, spelling: &str) ->
     }
 }
 
+/// The deterministic routes as spine [`Structurer`]s — Unit 2's wiring. A
+/// prefix or postfix reading enters the **same** intake pipeline as
+/// `ratio/v1`, so cross-route agreement is measured by the spine's claim
+/// grouping instead of a parallel path (the overlap recorded at the
+/// quantum-tier merge, resolved).
+///
+/// Attributed extractions become ratio claims; unattributed ones are
+/// *counted* (`StructuringOutput::unattributed` → corpus telemetry), not
+/// silently dropped and not flooded into the review queue — over a real
+/// corpus the unattributed tail is thousands of values, and a queue nobody
+/// can clear is as silent as a drop.
+pub struct LexiconRatioRoute {
+    lex: SubjectLexicon,
+    dir: Route,
+}
+
+impl LexiconRatioRoute {
+    pub fn new(lex: SubjectLexicon, dir: Route) -> Self {
+        LexiconRatioRoute { lex, dir }
+    }
+
+    /// The harmonics lexicon, reading in the given direction.
+    pub fn harmonics(dir: Route) -> Self {
+        Self::new(SubjectLexicon::harmonics(), dir)
+    }
+}
+
+impl Structurer for LexiconRatioRoute {
+    fn id(&self) -> &str {
+        self.dir.annotator()
+    }
+    fn structure(&self, _doc: &str, text: &str, _corpus: &BTreeSet<String>) -> StructuringOutput {
+        let mut out = StructuringOutput::default();
+        for ex in extract_with(text, &self.lex, self.dir) {
+            match ex.subject {
+                Some(subject) => {
+                    let claim = RatioClaim {
+                        subject,
+                        num: ex.num,
+                        den: ex.den,
+                    };
+                    if !out.ratios.contains(&claim) {
+                        out.ratios.push(claim);
+                    }
+                }
+                None => out.unattributed += 1,
+            }
+        }
+        out
+    }
+}
+
 /// The full result of structuring one span: the sealed structurings for every
 /// *attributed* value, and the *unattributed* values that need human review.
 #[derive(Debug, Clone, Default)]
@@ -474,6 +532,39 @@ mod tests {
         assert!(extract_with(postfix_form, &lex(), Route::Prefix)[0]
             .subject
             .is_none());
+    }
+
+    #[test]
+    fn lexicon_routes_feed_the_spine_and_agreement_is_attributed() {
+        // Unit 2's wiring, end to end: one doc says the same fact three ways —
+        // the strict scanner form, the prefix form, the postfix form. The
+        // spine groups them into ONE proposition whose route set records the
+        // three independent readers. That route set is the corroboration the
+        // parallel pipeline used to compute separately.
+        use crate::intake::{intake_with_routes, IntakeConfig, RatioRoute, Structurer};
+
+        let doc = "omega_lambda = 13/19\nΩ_Λ = 13/19\nand 26/38 = Ω_Λ closes it\n";
+        let prefix = LexiconRatioRoute::harmonics(Route::Prefix);
+        let postfix = LexiconRatioRoute::harmonics(Route::Postfix);
+        let routes: [&dyn Structurer; 3] = [&RatioRoute, &prefix, &postfix];
+        let r = intake_with_routes("doc", doc, &IntakeConfig::new("t"), &routes).unwrap();
+
+        assert_eq!(r.propositions.len(), 1, "one claim, three readings");
+        let p = &r.propositions[0];
+        assert_eq!(p.witness, "13/19", "26/38 reduces into the same witness");
+        assert_eq!(
+            p.routes,
+            vec![
+                "ratio/v1".to_string(),
+                Route::Postfix.annotator().to_string(),
+                Route::Prefix.annotator().to_string(),
+            ]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>(),
+            "all three routes attributed"
+        );
     }
 
     #[test]

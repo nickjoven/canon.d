@@ -17,13 +17,15 @@ use std::process::exit;
 
 use canon_d::intake::{intake_corpus_with_routes, prose_routes, Structurer};
 use canon_d::packs::code::{ApiRoute, DeprecatedRoute, ImportsRoute};
-use canon_d::Canonicalizer;
+#[cfg(feature = "prose")]
+use canon_d::structurer::{LexiconRatioRoute, Route};
 use canon_d::{
     attestation_schema, consensus_root, corpus_graph, cross_audit, dedup_gate, export,
     gate::Candidate, import, intake, project, proposition_schema, reconcile_gate,
     seal_constitution, Bundle, BundleEntry, Claim, CrossAuditConflict, Disposition, IntakeConfig,
     IntakeReport, Memo, Quantum, Rat, RatInterval, Rule, SchemaKind, Tolerance, TransparencyLog,
 };
+use canon_d::{Canonicalizer, SubjectDomains};
 use serde_json::{json, Value};
 
 fn seal_ratio(subject: &str, n: i64, d: i64) -> Quantum {
@@ -577,7 +579,11 @@ fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
     // Domain pack selection (DOMAINS.md): the pack decides which files are
     // corpus documents and which structurer routes run. The spine is shared.
     let pack = flag_value(args, "--pack").unwrap_or("prose");
-    let (ext, routes): (&str, Vec<&dyn Structurer>) = match pack {
+    // Owned routes (the urtext lexicon routes carry state) must outlive the
+    // roster of borrows below.
+    #[allow(unused_mut)]
+    let mut owned_routes: Vec<Box<dyn Structurer>> = Vec::new();
+    let (ext, mut routes): (&str, Vec<&dyn Structurer>) = match pack {
         "prose" => ("md", prose_routes().to_vec()),
         "code" => ("rs", vec![&ImportsRoute, &ApiRoute, &DeprecatedRoute]),
         other => {
@@ -585,6 +591,14 @@ fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
             return 2;
         }
     };
+    // With the prose wire, the prose pack also runs the deterministic
+    // prefix/postfix lexicon routes (Unit 2's N independent readers).
+    #[cfg(feature = "prose")]
+    if pack == "prose" {
+        owned_routes.push(Box::new(LexiconRatioRoute::harmonics(Route::Prefix)));
+        owned_routes.push(Box::new(LexiconRatioRoute::harmonics(Route::Postfix)));
+    }
+    routes.extend(owned_routes.iter().map(|r| r.as_ref()));
     let mut docs: Vec<(String, String)> = Vec::new();
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -614,6 +628,11 @@ fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
         // The code pack's noise quotient is byte-identity (DOMAINS.md F2).
         cfg.canonicalizer = Canonicalizer::Identity;
     }
+    if pack == "prose" {
+        // The Unit 2 domain witness: harmonics' declared value laws
+        // (Ω_Λ ∈ (0, 1)). Out-of-domain readings queue instead of promoting.
+        cfg.domains = SubjectDomains::harmonics();
+    }
     let report = match intake_corpus_with_routes(&docs, &cfg, &routes) {
         Ok(r) => r,
         Err(e) => {
@@ -640,11 +659,26 @@ fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
                 c.kind, c.subject, c.detail
             );
         }
+        for q in &report.promotions.queued {
+            println!(
+                "\x1b[33mQUEUED\x1b[0m {} = {} — {}",
+                q.subject, q.value, q.reason
+            );
+        }
+        if let Some(top) = report.promotions.promoted.first() {
+            println!(
+                "\nstrongest promotion: {} = {}  ({} docs, routes: {})",
+                top.subject,
+                top.value,
+                top.corroboration,
+                top.routes.join(", ")
+            );
+        }
         let t = &report.telemetry;
-        println!("\n{} docs · {} sealed · {} unstructured · {} edges · {} refs · {} propositions · {} terms · review depth {} · {} blocked",
+        println!("\n{} docs · {} sealed · {} unstructured · {} edges · {} refs · {} propositions ({} corroborated) · {} terms · {} unattributed · review depth {} · {} blocked",
             t.docs, t.utterances_sealed, t.unstructured, t.edges_promoted,
-            t.references_untyped, t.propositions, t.terms_bound,
-            t.needs_review_depth, t.reassertion_blocks);
+            t.references_untyped, t.propositions, t.corroborated, t.terms_bound,
+            t.unattributed_values, t.needs_review_depth, t.reassertion_blocks);
     }
     report.exit_code()
 }
