@@ -149,6 +149,16 @@ pub trait Structurer {
         canonical_text: &str,
         corpus_ids: &BTreeSet<String>,
     ) -> StructuringOutput;
+    /// Whether this route must see the RAW wire text instead of the canonical
+    /// form. Default false: routes structure the canonical text (the pack's
+    /// noise quotient). Override only when the route's input carries semantic
+    /// LINE structure that canonicalization erases — the `## Lineage` block
+    /// encodes one edge kind per line, so newline-collapsing normalization
+    /// silently retypes every edge and fuses line-boundary targets (#9). The
+    /// utterance CID is unaffected; only what this route reads changes.
+    fn structures_raw(&self) -> bool {
+        false
+    }
 }
 
 /// The lineage route: canon.d's `## Lineage` parser with the harmonics import
@@ -159,6 +169,9 @@ pub struct LineageRoute;
 impl Structurer for LineageRoute {
     fn id(&self) -> &str {
         "lineage/v1"
+    }
+    fn structures_raw(&self) -> bool {
+        true // one kind per LINE — line structure is the content (#9)
     }
     fn structure(&self, doc_id: &str, text: &str, _corpus: &BTreeSet<String>) -> StructuringOutput {
         let mut out = StructuringOutput::default();
@@ -518,7 +531,10 @@ pub fn intake_with_routes(
     // cross-route agreement is measurable downstream (Unit 2).
     let mut route_claims: Vec<(String, RatioClaim)> = Vec::new();
     for r in routes {
-        let o = r.structure(doc_id, &canonical, &cfg.corpus_ids);
+        // Line-sensitive routes read the wire form: the canonicalizer's
+        // newline collapse is exactly the noise they cannot survive (#9).
+        let text = if r.structures_raw() { raw_text } else { &canonical };
+        let o = r.structure(doc_id, text, &cfg.corpus_ids);
         merged.typed_edges.extend(o.typed_edges);
         merged.references.extend(o.references);
         route_claims.extend(o.ratios.into_iter().map(|c| (r.id().to_string(), c)));
@@ -1417,6 +1433,39 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
             "the whole report is invariant under formatting noise"
         );
         assert_eq!(a.canonicalizer, "urtext");
+    }
+
+    /// #9 regression: urtext collapses newlines, but the Lineage block's line
+    /// structure is semantic (one kind per line). Before the structures_raw
+    /// split, this block came out as 5 edges all-`grounds` plus junction-token
+    /// review items; it must parse as 9 edges, 3 kinds, 0 unresolved.
+    #[cfg(feature = "prose")]
+    #[test]
+    fn multiline_lineage_block_survives_prose_normalization() {
+        let cfg = corpus_cfg(&["a", "b", "c", "d", "e", "f", "g", "h", "i"]);
+        let text = "# doc\n\n## Lineage\n\n\
+                    grounds: a.md, b.md\n\
+                    derives: c.md, d.md, e.md\n\
+                    proposes: f.md, g.md, h.md, i.md\n";
+        let r = intake("doc", text, &cfg).unwrap();
+        assert_eq!(r.edges.len(), 9, "every edge on every line parses");
+        let kind_of = |t: &str| {
+            r.edges
+                .iter()
+                .find(|e| e.to == t)
+                .map(|e| e.kind.as_str().to_string())
+        };
+        assert_eq!(kind_of("a").as_deref(), Some("grounds"));
+        assert_eq!(kind_of("b").as_deref(), Some("grounds"));
+        assert_eq!(kind_of("e").as_deref(), Some("derives"));
+        assert_eq!(kind_of("f").as_deref(), Some("proposes"));
+        assert_eq!(kind_of("i").as_deref(), Some("proposes"));
+        assert!(
+            r.needs_review
+                .iter()
+                .all(|n| n.kind != "unresolved_lineage_target"),
+            "no line-junction tokens leak into review"
+        );
     }
 
     #[cfg(not(feature = "prose"))]
