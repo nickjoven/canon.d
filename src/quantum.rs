@@ -233,6 +233,27 @@ pub fn edge_annotation_schema() -> Schema {
         .optional("evidence", FieldKind::String)
 }
 
+/// The substrate-level schema for a **head succession** record — the sealed
+/// form of "re-sealing `name` moved its canonical head from `old` to `new`"
+/// (issue #6's lineage-linked re-sealing; the plot move that makes canonical
+/// heads knowable instead of leaving re-seals as anonymous siblings).
+///
+/// Identity = `(name, old, new, annotator)`, deliberately **matching
+/// [`edge_annotation_schema`]'s convention**: there the annotator binds
+/// identity too, so the same annotator re-declaring the same fact **upserts**
+/// (idempotent — same CID) while two annotators declaring it independently
+/// **coexist** as separate attestations, never clobbering each other. v2's
+/// commitment 8 (provenance in the envelope, never content) will move the
+/// annotator out of identity for *both* schemas in one version bump; until
+/// then the two lineage channels stay convention-identical.
+pub fn head_succession_schema() -> Schema {
+    Schema::new("head_succession", 1)
+        .identity("name", FieldKind::String)
+        .identity("old", FieldKind::Cid)
+        .identity("new", FieldKind::Cid)
+        .identity("annotator", FieldKind::String)
+}
+
 /// Validate that an edge-annotation body carries a known `kind`. (canon.d treats
 /// `kind` as an opaque string; this is the domain check the substrate offers for
 /// the one vocabulary it does own.)
@@ -483,6 +504,43 @@ mod tests {
             grounds_a, derives_b,
             "two annotators must COEXIST, not clobber"
         );
+    }
+
+    #[test]
+    fn head_succession_identity_matches_edge_annotation_convention() {
+        let s = head_succession_schema();
+        // Same (name, old, new, annotator) resealed → one CID: re-declaring a
+        // succession is an upsert, so replaying an intake run seals nothing new.
+        let a = Quantum::seal(
+            &s,
+            &json!({"name":"glossary","old":"OLD","new":"NEW","annotator":"intake"}),
+        )
+        .unwrap();
+        let b = Quantum::seal(
+            &s,
+            &json!({"name":"glossary","old":"OLD","new":"NEW","annotator":"intake"}),
+        )
+        .unwrap();
+        assert_eq!(a.cid, b.cid, "identical succession reseals to one CID");
+
+        // The annotator binds identity — edge_annotation's convention, kept
+        // deliberately: two declarers of one succession COEXIST as separate
+        // attestations (the commitment-8 envelope move is a later version bump
+        // for both schemas at once).
+        let c = Quantum::seal(
+            &s,
+            &json!({"name":"glossary","old":"OLD","new":"NEW","annotator":"gpt"}),
+        )
+        .unwrap();
+        assert_ne!(a.cid, c.cid, "two annotators coexist, as in edge_annotation");
+
+        // A different hop in the chain is a different record.
+        let d = Quantum::seal(
+            &s,
+            &json!({"name":"glossary","old":"NEW","new":"NEWER","annotator":"intake"}),
+        )
+        .unwrap();
+        assert_ne!(a.cid, d.cid, "each (old, new) hop seals its own quantum");
     }
 
     #[test]

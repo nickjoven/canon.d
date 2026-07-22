@@ -4,6 +4,12 @@
 //!   cargo run --bin canon-demo -- intake <file.md> [--json] [--annotator ID]
 //!   cargo run --bin canon-demo -- intake-corpus <dir> [--json] [--annotator ID]
 //!                                 [--emit-graph-json <path>] [--pack prose|code]
+//!                                 [--prior-heads <file>]
+//!
+//! `--prior-heads` closes the cross-run head chain (#6): pass a previous run's
+//! `--json` report (or a plain `{doc_id: cid}` object) and every re-sealed doc
+//! whose CID moved gets a sealed `head_succession` record. Run N's report is
+//! run N+1's `--prior-heads`.
 //!
 //! Human-readable by default; `--json` emits one machine-readable object per
 //! command (the same numbers the web page and deck render). Exit codes follow
@@ -15,7 +21,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::exit;
 
-use canon_d::intake::{intake_corpus_with_routes, prose_routes, Structurer};
+use canon_d::intake::{intake_corpus_with_routes, prior_heads_from_json, prose_routes, Structurer};
 use canon_d::packs::code::{ApiRoute, DeprecatedRoute, ImportsRoute};
 #[cfg(feature = "prose")]
 use canon_d::structurer::{LexiconRatioRoute, Route};
@@ -456,7 +462,12 @@ fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
 /// Positional arguments: everything that is neither a flag nor a value
 /// consumed by a value-taking flag. `positionals(&args)[0]` is the subcommand.
 fn positionals(args: &[String]) -> Vec<&str> {
-    const VALUE_FLAGS: [&str; 3] = ["--annotator", "--emit-graph-json", "--pack"];
+    const VALUE_FLAGS: [&str; 4] = [
+        "--annotator",
+        "--emit-graph-json",
+        "--pack",
+        "--prior-heads",
+    ];
     let mut out = Vec::new();
     let mut skip = false;
     for a in args {
@@ -483,6 +494,14 @@ fn print_intake_report(r: &IntakeReport) {
         short(&r.utterance_cid),
         r.canonicalizer
     );
+    if let Some(s) = &r.head_succession {
+        println!(
+            "  \x1b[36mSUPERSEDES\x1b[0m {} → {}   succession {}",
+            short(&s.old),
+            short(&s.new),
+            short(&s.cid)
+        );
+    }
     for e in &r.edges {
         println!(
             "  edge     {} \x1b[2m--{}->\x1b[0m {}   annotation {}",
@@ -573,7 +592,7 @@ fn cmd_intake(args: &[String], json_out: bool) -> i32 {
 
 fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
     let Some(&dir) = positionals(args).get(1) else {
-        eprintln!("usage: canon-demo intake-corpus <dir> [--json] [--annotator ID] [--emit-graph-json <path>] [--pack prose|code]");
+        eprintln!("usage: canon-demo intake-corpus <dir> [--json] [--annotator ID] [--emit-graph-json <path>] [--pack prose|code] [--prior-heads <file>]");
         return 2;
     };
     // Domain pack selection (DOMAINS.md): the pack decides which files are
@@ -633,6 +652,25 @@ fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
         // (Ω_Λ ∈ (0, 1)). Out-of-domain readings queue instead of promoting.
         cfg.domains = SubjectDomains::harmonics();
     }
+    // The cross-run head chain (#6): a previous run's --json report (or a
+    // plain {doc_id: cid} object) supplies the heads this run supersedes.
+    if let Some(prior) = flag_value(args, "--prior-heads") {
+        let text = match std::fs::read_to_string(prior) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("cannot read {prior}: {e}");
+                return 2;
+            }
+        };
+        let v: Value = match serde_json::from_str(&text) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("cannot parse {prior} as JSON: {e}");
+                return 2;
+            }
+        };
+        cfg.prior_heads = prior_heads_from_json(&v);
+    }
     let report = match intake_corpus_with_routes(&docs, &cfg, &routes) {
         Ok(r) => r,
         Err(e) => {
@@ -675,10 +713,11 @@ fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
             );
         }
         let t = &report.telemetry;
-        println!("\n{} docs · {} sealed · {} unstructured · {} edges · {} refs · {} propositions ({} corroborated) · {} terms · {} unattributed · review depth {} · {} blocked",
+        println!("\n{} docs · {} sealed · {} unstructured · {} edges · {} refs · {} propositions ({} corroborated) · {} terms · {} unattributed · review depth {} · {} blocked · {} heads superseded",
             t.docs, t.utterances_sealed, t.unstructured, t.edges_promoted,
             t.references_untyped, t.propositions, t.corroborated, t.terms_bound,
-            t.unattributed_values, t.needs_review_depth, t.reassertion_blocks);
+            t.unattributed_values, t.needs_review_depth, t.reassertion_blocks,
+            t.heads_superseded);
     }
     report.exit_code()
 }

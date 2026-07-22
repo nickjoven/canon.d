@@ -88,15 +88,16 @@ pub use generator::{
     walk, EvalError, Memo, Orphan, Projection, Rat,
 };
 pub use intake::{
-    corpus_graph, intake, intake_corpus, CorpusReport, IntakeConfig, IntakeError, IntakeReport,
+    corpus_graph, intake, intake_corpus, prior_heads_from_json, CorpusReport, HeadSuccessionOut,
+    IntakeConfig, IntakeError, IntakeReport,
 };
 pub use lineage::{lineage_closure, lineage_to_annotations, parse_lineage, TypedEdge};
 pub use log::{LogEntry, TransparencyLog};
 pub use mapping::{mapping_schema, Direction, Mapping, MappingBuilder};
 pub use propagation::{calibrate_floor, floor_for_budget, levels, propagate, reach, Calibration};
 pub use quantum::{
-    address, cross_audit, edge_annotation_schema, schema_cid, validate_edge_kind,
-    CrossAuditConflict, Quantum, QuantumError, EDGE_KINDS,
+    address, cross_audit, edge_annotation_schema, head_succession_schema, schema_cid,
+    validate_edge_kind, CrossAuditConflict, Quantum, QuantumError, EDGE_KINDS,
 };
 pub use reconcile::{
     reconcile, reconcile_quanta, seal_verification, verification_schema, Agreement, ReconcileError,

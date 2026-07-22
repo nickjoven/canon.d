@@ -24,6 +24,25 @@
 //! The whole pipeline is **idempotent and deterministic**: same bytes in, the
 //! same report out, byte for byte. No clocks, no randomness, no iteration
 //! order leaks. That is what makes it safe to wire into CI, hooks, and cron.
+//!
+//! ## The cross-run head chain (#6)
+//!
+//! Re-sealing a changed document used to create **siblings, not
+//! supersessions** — the substrate could not answer "which seal is
+//! canonical." Intake now closes that gap without any persistent store:
+//! [`IntakeConfig::prior_heads`] carries the previous run's `doc_id →
+//! utterance CID` map, and when a doc re-seals at a *different* CID, intake
+//! seals a [`head_succession`](crate::head_succession_schema) quantum
+//! `(name, old, new, annotator)` and surfaces it per-doc
+//! ([`IntakeReport::head_succession`]) and in telemetry
+//! ([`Telemetry::heads_superseded`]). Unchanged docs and docs absent from
+//! the prior map emit nothing.
+//!
+//! This makes canonical heads knowable across runs via the artifact chain:
+//! **run N's report is run N+1's `--prior-heads`**. Each report carries the
+//! frontier the next run supersedes against, so the chain of sealed
+//! succession quanta — not a database — is what answers "am I speaking from
+//! the head?".
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -36,7 +55,9 @@ use crate::lineage::{lineage_to_annotations, parse_lineage, TypedEdge};
 use crate::promote::{
     CrossAuditReport, Plausibility, Promoted, PromotionPolicy, Queued, SubjectDomains,
 };
-use crate::quantum::{cross_audit, CrossAuditConflict, Quantum, QuantumError};
+use crate::quantum::{
+    cross_audit, head_succession_schema, CrossAuditConflict, Quantum, QuantumError,
+};
 use crate::strata::{proposition_schema, seal_assertion, term_schema, StrataError};
 
 /// Errors that abort an intake (environment-class failures). Everything
@@ -68,6 +89,13 @@ pub struct IntakeConfig {
     /// Corpus-level promotion threshold: a proposition corroborated by fewer
     /// distinct documents than this is queued, not promoted.
     pub policy: PromotionPolicy,
+    /// Canonical heads from a previous run: `doc_id → utterance CID` (#6).
+    /// A doc present here that re-seals at a *different* CID gets a sealed
+    /// `head_succession` record; unchanged or unknown docs emit nothing.
+    /// Empty = first run, no supersession possible. Feed it from the previous
+    /// run's report ([`prior_heads_from_json`]) — run N's report is run N+1's
+    /// prior heads.
+    pub prior_heads: BTreeMap<String, String>,
 }
 
 impl IntakeConfig {
@@ -80,6 +108,7 @@ impl IntakeConfig {
             canonicalizer: Canonicalizer::Text,
             domains: SubjectDomains::default(),
             policy: PromotionPolicy::default(),
+            prior_heads: BTreeMap::new(),
         }
     }
 }
@@ -441,6 +470,20 @@ pub struct ReviewItem {
     pub detail: String,
 }
 
+/// A sealed head-succession record (#6): this run re-sealed the doc at a new
+/// utterance CID, superseding the prior head. `cid` addresses the sealed
+/// [`head_succession`](crate::head_succession_schema) quantum, so the
+/// supersession itself is substrate content, not just report telemetry.
+#[derive(Debug, Clone, Serialize)]
+pub struct HeadSuccessionOut {
+    /// The prior canonical head (from [`IntakeConfig::prior_heads`]).
+    pub old: String,
+    /// The new head — this run's utterance CID.
+    pub new: String,
+    /// CID of the sealed `head_succession` quantum.
+    pub cid: String,
+}
+
 /// A re-assertion of a Falsified proposition, refused at the gate.
 #[derive(Debug, Clone, Serialize)]
 pub struct Blocked {
@@ -459,6 +502,11 @@ pub struct IntakeReport {
     /// feature, `"identity"` without. Pinned per INTAKE.md: a corpus ingested
     /// in one mode has visibly different CIDs than the other.
     pub canonicalizer: &'static str,
+    /// The sealed head succession, when this doc's prior head (per
+    /// [`IntakeConfig::prior_heads`]) differs from `utterance_cid` (#6).
+    /// Absent for unchanged docs and docs with no known prior head.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub head_succession: Option<HeadSuccessionOut>,
     pub edges: Vec<EdgeOut>,
     pub references: Vec<String>,
     pub propositions: Vec<PropositionOut>,
@@ -519,6 +567,29 @@ pub fn intake_with_routes(
     routes: &[&dyn Structurer],
 ) -> Result<IntakeReport, IntakeError> {
     let utterance = seal_utterance_with(cfg.canonicalizer, raw_text, &cfg.lang, &cfg.annotator)?;
+    // Head succession (#6): a re-seal at a new CID supersedes the prior head
+    // instead of coexisting as an anonymous sibling. The record is sealed
+    // substrate content — identity `(name, old, new, annotator)`, matching
+    // edge_annotation's convention — so the head chain survives the run.
+    let head_succession = match cfg.prior_heads.get(doc_id) {
+        Some(old) if *old != utterance.cid => {
+            let record = Quantum::seal(
+                &head_succession_schema(),
+                &json!({
+                    "name": doc_id,
+                    "old": old,
+                    "new": utterance.cid,
+                    "annotator": cfg.annotator,
+                }),
+            )?;
+            Some(HeadSuccessionOut {
+                old: old.clone(),
+                new: utterance.cid.clone(),
+                cid: record.cid,
+            })
+        }
+        _ => None,
+    };
     // Structure the *canonical* text — the substrate's form, not the wire form.
     let canonical = utterance
         .field("text")
@@ -703,6 +774,7 @@ pub fn intake_with_routes(
         doc_id: doc_id.to_string(),
         utterance_cid: utterance.cid,
         canonicalizer: cfg.canonicalizer.mode(),
+        head_succession,
         edges,
         references,
         propositions,
@@ -753,6 +825,9 @@ pub struct Telemetry {
     pub unattributed_values: usize,
     pub needs_review_depth: usize,
     pub reassertion_blocks: usize,
+    /// Docs whose re-seal superseded a prior head — one sealed
+    /// `head_succession` quantum each (#6).
+    pub heads_superseded: usize,
 }
 
 impl CorpusReport {
@@ -975,6 +1050,10 @@ pub fn intake_corpus_with_routes(
             + cross_conflicts.len()
             + promotions.queued.len(),
         reassertion_blocks: reports.iter().map(|r| r.blocked.len()).sum(),
+        heads_superseded: reports
+            .iter()
+            .filter(|r| r.head_succession.is_some())
+            .count(),
     };
 
     Ok(CorpusReport {
@@ -983,6 +1062,48 @@ pub fn intake_corpus_with_routes(
         promotions,
         telemetry,
     })
+}
+
+/// Extract a prior-heads map (`doc_id → utterance CID`) from a previous run's
+/// JSON artifact — the read half of the cross-run head chain (#6): run N's
+/// report is run N+1's prior heads. Accepts, detected by shape:
+///
+/// - a corpus `--json` report (an object with a `reports` array; each entry's
+///   `doc_id` + `utterance_cid` are taken),
+/// - a single-doc `--json` report (an object with top-level string `doc_id`
+///   and `utterance_cid`),
+/// - a plain `{doc_id: cid}` object (every string-valued entry is taken).
+///
+/// Anything else yields an empty map — no prior heads, no successions, which
+/// is the honest reading of an unrecognizable artifact.
+pub fn prior_heads_from_json(v: &Value) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    if let Some(reports) = v.get("reports").and_then(Value::as_array) {
+        for r in reports {
+            if let (Some(id), Some(cid)) = (
+                r.get("doc_id").and_then(Value::as_str),
+                r.get("utterance_cid").and_then(Value::as_str),
+            ) {
+                out.insert(id.to_string(), cid.to_string());
+            }
+        }
+        return out;
+    }
+    if let (Some(id), Some(cid)) = (
+        v.get("doc_id").and_then(Value::as_str),
+        v.get("utterance_cid").and_then(Value::as_str),
+    ) {
+        out.insert(id.to_string(), cid.to_string());
+        return out;
+    }
+    if let Some(obj) = v.as_object() {
+        for (k, val) in obj {
+            if let Some(cid) = val.as_str() {
+                out.insert(k.clone(), cid.to_string());
+            }
+        }
+    }
+    out
 }
 
 /// The compat graph projection (INTAKE.md integration step 1): the corpus as
@@ -1314,6 +1435,134 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
         assert_eq!(r.blocked.len(), 1);
         assert_eq!(r.blocked[0].proposition_cid, falsified_prop.cid);
         assert_eq!(r.exit_code(), 1);
+    }
+
+    #[test]
+    fn changed_doc_emits_exactly_one_head_succession() {
+        let cfg = IntakeConfig::new("t");
+        let v1 = intake("doc", "x = 1/3\n", &cfg).unwrap();
+        assert!(v1.head_succession.is_none(), "no prior heads → no record");
+
+        let mut cfg2 = cfg.clone();
+        cfg2.prior_heads
+            .insert("doc".into(), v1.utterance_cid.clone());
+        let v2 = intake("doc", "x = 1/2\n", &cfg2).unwrap();
+        let s = v2
+            .head_succession
+            .as_ref()
+            .expect("a changed doc supersedes its prior head");
+        assert_eq!(s.old, v1.utterance_cid, "old = the prior head");
+        assert_eq!(s.new, v2.utterance_cid, "new = this run's utterance CID");
+        assert_ne!(s.old, s.new);
+
+        // The record is a sealed quantum with the documented identity: an
+        // independent re-seal of (name, old, new, annotator) reproduces its CID.
+        let record = Quantum::seal(
+            &crate::quantum::head_succession_schema(),
+            &json!({"name": "doc", "old": s.old, "new": s.new, "annotator": "t"}),
+        )
+        .unwrap();
+        assert_eq!(record.cid, s.cid, "succession CID is content-addressed");
+        assert_eq!(v2.exit_code(), 0, "a succession is lineage, not a finding");
+    }
+
+    #[test]
+    fn unchanged_or_unknown_docs_emit_no_succession() {
+        let cfg = IntakeConfig::new("t");
+        let v1 = intake("doc", "x = 1/3\n", &cfg).unwrap();
+
+        // Unchanged: the prior head equals the fresh CID — nothing to declare.
+        let mut same_cfg = cfg.clone();
+        same_cfg
+            .prior_heads
+            .insert("doc".into(), v1.utterance_cid.clone());
+        let same = intake("doc", "x = 1/3\n", &same_cfg).unwrap();
+        assert!(same.head_succession.is_none(), "unchanged doc emits nothing");
+
+        // Absent from prior heads: a new doc has no head to supersede.
+        let mut other_cfg = cfg.clone();
+        other_cfg
+            .prior_heads
+            .insert("some_other_doc".into(), "deadbeef".into());
+        let fresh = intake("doc", "x = 1/2\n", &other_cfg).unwrap();
+        assert!(
+            fresh.head_succession.is_none(),
+            "a doc absent from prior heads emits nothing"
+        );
+    }
+
+    #[test]
+    fn corpus_head_chain_run_n_report_feeds_run_n_plus_1() {
+        // The cross-run chain end to end: run 1's report *is* run 2's prior
+        // heads; the edited doc supersedes, the stable doc stays silent.
+        let cfg = IntakeConfig::new("t");
+        let run1 = intake_corpus(
+            &[
+                ("edited".to_string(), "x = 1/3\n".to_string()),
+                ("stable".to_string(), "y = 1/2\n".to_string()),
+            ],
+            &cfg,
+        )
+        .unwrap();
+        assert_eq!(run1.telemetry.heads_superseded, 0);
+
+        let heads = prior_heads_from_json(&serde_json::to_value(&run1).unwrap());
+        assert_eq!(heads.len(), 2, "every sealed doc contributes a head");
+
+        let mut cfg2 = cfg.clone();
+        cfg2.prior_heads = heads;
+        let run2 = intake_corpus(
+            &[
+                ("edited".to_string(), "x = 1/4\n".to_string()),
+                ("stable".to_string(), "y = 1/2\n".to_string()),
+            ],
+            &cfg2,
+        )
+        .unwrap();
+        assert_eq!(run2.telemetry.heads_superseded, 1);
+        let edited = run2.reports.iter().find(|r| r.doc_id == "edited").unwrap();
+        let stable = run2.reports.iter().find(|r| r.doc_id == "stable").unwrap();
+        let s = edited.head_succession.as_ref().expect("edited doc supersedes");
+        assert_eq!(
+            s.old,
+            run1.reports
+                .iter()
+                .find(|r| r.doc_id == "edited")
+                .unwrap()
+                .utterance_cid
+        );
+        assert_eq!(s.new, edited.utterance_cid);
+        assert!(stable.head_succession.is_none());
+    }
+
+    #[test]
+    fn prior_heads_parse_all_three_shapes() {
+        // Plain {doc_id: cid} object.
+        let plain = prior_heads_from_json(&json!({"a": "cid_a", "b": "cid_b"}));
+        assert_eq!(plain.len(), 2);
+        assert_eq!(plain.get("a").map(String::as_str), Some("cid_a"));
+
+        // A corpus --json report: reports[].doc_id + utterance_cid.
+        let corpus = prior_heads_from_json(&json!({
+            "reports": [
+                {"doc_id": "a", "utterance_cid": "cid_a", "edges": []},
+                {"doc_id": "b", "utterance_cid": "cid_b"}
+            ],
+            "telemetry": {"docs": 2}
+        }));
+        assert_eq!(corpus.len(), 2);
+        assert_eq!(corpus.get("b").map(String::as_str), Some("cid_b"));
+
+        // A single-doc --json report: top-level doc_id + utterance_cid only —
+        // its other string fields (canonicalizer, …) must not leak in as heads.
+        let single = prior_heads_from_json(&json!({
+            "doc_id": "a", "utterance_cid": "cid_a", "canonicalizer": "identity"
+        }));
+        assert_eq!(single.len(), 1);
+        assert_eq!(single.get("a").map(String::as_str), Some("cid_a"));
+
+        // Unrecognizable artifacts yield no heads, not a guess.
+        assert!(prior_heads_from_json(&json!([1, 2])).is_empty());
     }
 
     #[test]
