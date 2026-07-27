@@ -532,7 +532,10 @@ mod tests {
             &json!({"name":"glossary","old":"OLD","new":"NEW","annotator":"gpt"}),
         )
         .unwrap();
-        assert_ne!(a.cid, c.cid, "two annotators coexist, as in edge_annotation");
+        assert_ne!(
+            a.cid, c.cid,
+            "two annotators coexist, as in edge_annotation"
+        );
 
         // A different hop in the chain is a different record.
         let d = Quantum::seal(

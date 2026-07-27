@@ -651,6 +651,13 @@ fn cmd_intake_corpus(args: &[String], json_out: bool) -> i32 {
         // The Unit 2 domain witness: harmonics' declared value laws
         // (Ω_Λ ∈ (0, 1)). Out-of-domain readings queue instead of promoting.
         cfg.domains = SubjectDomains::harmonics();
+        // Card 3d: the lexicon doubles as the subject normalizer, so the
+        // strict scanner's verbatim spellings group with the lexicon routes'
+        // canonical subjects instead of sealing case-split propositions.
+        #[cfg(feature = "prose")]
+        {
+            cfg.subject_aliases = canon_d::structurer::SubjectLexicon::harmonics().alias_map();
+        }
     }
     // The cross-run head chain (#6): a previous run's --json report (or a
     // plain {doc_id: cid} object) supplies the heads this run supersedes.
