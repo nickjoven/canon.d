@@ -116,6 +116,25 @@ impl SubjectLexicon {
             let Some(pos) = hay.rfind(cue.as_str()) else {
                 continue;
             };
+            // An operator or digit hugging the cue from the left means the
+            // cue is a term inside an expression, not a bare subject:
+            // `1 − w_+ = 1/14` must not seal w_plus = 1/14 (the complement
+            // of the actual claim), and `2w_+` is not `w_+`.
+            let pre = hay[..pos].trim_end();
+            let before = pre.chars().next_back();
+            if before.is_some_and(|c| OPERATORS.contains(c) || c.is_ascii_digit()) {
+                continue;
+            }
+            // A compound subject list — the cue preceded by `<other cue>,` —
+            // names several subjects at once: `(Ω_Λ, Ω_DM, Ω_b) = (13/19,
+            // 5/19, 1/19)` must not seal the tuple's first value under the
+            // LAST subject. An ordinary clause comma (`…, Ω_Λ = 13/19`) has
+            // no cue before it and still binds.
+            if let Some(list) = pre.strip_suffix(',').map(str::trim_end) {
+                if self.entries.iter().any(|(_, c)| list.ends_with(c.as_str())) {
+                    continue;
+                }
+            }
             let end = pos + cue.len();
             let Some(conn) = classify_connector(&hay[end..], false) else {
                 continue; // cue present but not in one expression with the value
@@ -146,6 +165,14 @@ impl SubjectLexicon {
             let Some(pos) = hay.find(cue.as_str()) else {
                 continue;
             };
+            // The mirror of the prefix walk's expression guard: an operator
+            // or digit hugging the cue from the right (`13/19 (w_+ / 2)`)
+            // means the cue is a term inside an expression, not the name
+            // the value leads into.
+            let after = hay[pos + cue.len()..].trim_start().chars().next();
+            if after.is_some_and(|c| OPERATORS.contains(c) || c.is_ascii_digit()) {
+                continue;
+            }
             let Some(conn) = classify_connector(&hay[..pos], true) else {
                 continue; // cue present but not in one expression with the value
             };
@@ -199,6 +226,17 @@ impl Route {
         }
     }
 }
+
+/// Arithmetic context characters. A value or cue touching one of these is a
+/// *fragment of a larger expression*, never a bare `subject = value`
+/// assignment — the completion of Card 3a's assignment scoping. The two
+/// junk classes this kills surfaced on the first v2 re-ingest:
+/// `w_+ = 0.04930 / (1 − 0.0986)` sealed the formula's head as
+/// `w_plus = 493/10000`, and `1 − w_+ = 1/14` sealed the complement of the
+/// actual claim. `*` is deliberately absent: in a markdown corpus it is
+/// emphasis (`**w_+ = 12/13**` is a bare assignment, bold), and this corpus
+/// writes multiplication as `·` or `×`.
+const OPERATORS: &str = "+-−·×/^";
 
 /// What kind of connector sits between a subject cue and its value — the v2
 /// binding evidence (harmonics#328 Card 3a). Carried through to the value
@@ -324,11 +362,37 @@ pub fn extract_with(span: &str, lex: &SubjectLexicon, route: Route) -> Vec<Extra
     }
 }
 
-/// True when the region after `i` opens with `%` — the value is a percentage
-/// rendering (`6.7%` sealed `omega_b = 67/10` under v1), not the subject's
-/// exact rational (Card 3b). No cue on either side can rescue it.
-fn percent_follows(regs: &[urtext::Region], i: usize) -> bool {
-    regs.get(i + 1).is_some_and(|r| r.text.starts_with('%'))
+/// True when `next` (the text following a value) marks the value as
+/// non-final: a `%` makes it a percentage rendering (`6.7%` sealed
+/// `omega_b = 67/10` under v1, Card 3b); an arithmetic operator makes it the
+/// head of a longer expression (`w_+ = (14 - 1) / 14` must not seal
+/// w_plus = 14/1 — the RHS is a formula, its first number is not the value).
+/// No cue on either side can rescue such a value.
+fn value_continues(next: &str) -> bool {
+    next.starts_with('%')
+        || next
+            .trim_start()
+            .chars()
+            .next()
+            .is_some_and(|c| OPERATORS.contains(c))
+}
+
+/// [`value_continues`] read against the region after `i` — the prefix walk's
+/// lookahead form — plus the ratio-list rule: a colon-ONLY gap onto another
+/// number is a partition/list continuation (`Ω_b = 13 : 5 : 1 / 19` — 13 is
+/// the partition's first share, not Ω_b's value), while a colon followed by
+/// words is an ordinary sentence colon and does not disturb the bind.
+fn expression_continues(regs: &[urtext::Region], i: usize) -> bool {
+    let Some(next) = regs.get(i + 1) else {
+        return false;
+    };
+    if value_continues(&next.text) {
+        return true;
+    }
+    next.text.trim() == ":"
+        && regs
+            .get(i + 2)
+            .is_some_and(|r| r.kind == RegionKind::Number)
 }
 
 /// Prefix walk: the cue in the *preceding* prose licenses the *next* value.
@@ -346,7 +410,7 @@ fn extract_prefix(input: &str, lex: &SubjectLexicon) -> Vec<Extraction> {
                 Some(rat) => {
                     let bound = pending.take();
                     let mut ex = rat_extraction(None, &rat, &region.text);
-                    if !percent_follows(&regs, i) {
+                    if !expression_continues(&regs, i) {
                         if let Some((subject, conn)) = bound {
                             if attributable(&ex, conn) {
                                 ex.subject = Some(subject);
@@ -380,9 +444,10 @@ fn extract_postfix(input: &str, lex: &SubjectLexicon) -> Vec<Extraction> {
             }
             RegionKind::Prose => {
                 if let Some(mut ex) = held.take() {
-                    // a leading `%` marks the held value as a percentage —
-                    // excluded before any cue in this region can bind it.
-                    if !region.text.starts_with('%') {
+                    // a leading `%` or operator marks the held value as a
+                    // percentage / formula fragment — excluded before any
+                    // cue in this region can bind it.
+                    if !value_continues(&region.text) {
                         if let Some((subject, conn)) = lex.binding_subject_leading(&region.text) {
                             if attributable(&ex, conn) {
                                 ex.subject = Some(subject);
@@ -752,6 +817,91 @@ mod tests {
         let ex = extract("Ω_Λ = 13", &lex());
         assert_eq!(ex[0].subject.as_deref(), Some("omega_lambda"));
         assert_eq!(ex[0].value, "13/1");
+    }
+
+    #[test]
+    fn a_formula_head_is_not_the_value() {
+        // First v2 re-ingest junk class: the RHS is an expression, so its
+        // leading number is NOT the subject's value. `w_+ = 0.04930 / (1 −
+        // 0.0986)` sealed w_plus = 493/10000; `w_+ = (14 - 1) / 14` sealed
+        // w_plus = 14/1.
+        for span in [
+            "w_+ = 0.04930 / (1 - 0.0986) ≈ 0.9298",
+            "w_+ = (14 - 1) / 14 = 13 / 14",
+        ] {
+            let ex = extract(span, &lex());
+            assert!(
+                ex.iter().all(|e| e.subject.is_none()),
+                "no bind on a formula head in {span:?}: {ex:?}"
+            );
+        }
+        // ...and the plain assignment of the same value still binds.
+        let ex = extract("w_+ = 13/14", &lex());
+        assert_eq!(ex[0].subject.as_deref(), Some("w_plus"));
+    }
+
+    #[test]
+    fn an_expression_term_is_not_a_bare_subject() {
+        // The complement misread: `1 − w_+ = 1/14` states w_+ = 13/14; v2
+        // must not seal w_plus = 1/14. The cue is operator-hugged, so it is
+        // a term inside an expression, not a subject being assigned.
+        for span in ["1 − w_+ = 1/14", "1 - w_+ = 1/14"] {
+            let ex = extract(span, &lex());
+            assert!(
+                ex.iter().all(|e| e.subject.is_none()),
+                "no bind through an expression term in {span:?}: {ex:?}"
+            );
+        }
+        // Mirror direction: an operator-hugged cue after the value.
+        let ex = extract_with("13/19 (w_+ / 2)", &lex(), Route::Postfix);
+        assert!(ex.iter().all(|e| e.subject.is_none()), "{ex:?}");
+    }
+
+    #[test]
+    fn a_partition_share_is_not_the_last_subjects_value() {
+        // `Ω_Λ : Ω_DM : Ω_b = 13 : 5 : 1 / 19` — 13 is the partition's first
+        // share; v1-style binding gave it to the nearest cue (Ω_b). The
+        // colon-ONLY gap onto another number marks the list continuation.
+        let ex = extract("Ω_Λ : Ω_DM : Ω_b = 13 : 5 : 1 / 19", &lex());
+        assert!(
+            ex.iter().all(|e| e.subject.is_none()),
+            "no bind inside a ratio list: {ex:?}"
+        );
+        // A sentence colon after the value does not disturb the bind.
+        let ex = extract("Predictions at w_+ = 0.9298: the rows follow", &lex());
+        let bound: Vec<_> = ex.iter().filter(|e| e.subject.is_some()).collect();
+        assert_eq!(bound.len(), 1);
+        assert_eq!(bound[0].value, "4649/5000");
+    }
+
+    #[test]
+    fn a_tuple_assignment_does_not_bind_the_last_subject() {
+        // `(Ω_Λ, Ω_DM, Ω_b) = (13/19, 5/19, 1/19)` — the tuple's first value
+        // is Ω_Λ's, but the nearest cue to it is Ω_b. The compound-subject
+        // signature (cue preceded by `<other cue>,`) refuses the bind for
+        // every cue in the list.
+        let ex = extract("(Ω_Λ, Ω_DM, Ω_b) = (13/19, 5/19, 1/19)", &lex());
+        assert!(
+            ex.iter().all(|e| e.subject.is_none()),
+            "no bind inside a tuple assignment: {ex:?}"
+        );
+        // The multi-assignment clause comma still binds (regression guard
+        // for a_comma_never_donates_a_subject_across_assignments).
+        let ex = extract("as shown, Ω_Λ = 13/19 survives", &lex());
+        let bound: Vec<_> = ex.iter().filter(|e| e.subject.is_some()).collect();
+        assert_eq!(bound.len(), 1);
+        assert_eq!(bound[0].subject.as_deref(), Some("omega_lambda"));
+    }
+
+    #[test]
+    fn markdown_bold_is_not_multiplication() {
+        // `**w_+ = 12/13**` is a bare assignment wearing emphasis; `*` must
+        // not read as an operator hugging the cue.
+        let ex = extract("unique rational solution **w_+ = 12/13**", &lex());
+        let bound: Vec<_> = ex.iter().filter(|e| e.subject.is_some()).collect();
+        assert_eq!(bound.len(), 1, "{ex:?}");
+        assert_eq!(bound[0].subject.as_deref(), Some("w_plus"));
+        assert_eq!(bound[0].value, "12/13");
     }
 
     #[test]
