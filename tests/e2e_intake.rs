@@ -105,13 +105,22 @@ fn prior_heads_roundtrip_across_two_runs() {
     let run1 = canon_demo(&["intake-corpus", &dir_s, "--json"]);
     assert_eq!(run1.status.code(), Some(0));
     let v1: serde_json::Value = serde_json::from_slice(&run1.stdout).unwrap();
-    assert_eq!(v1["telemetry"]["heads_superseded"], 0, "first run: no chain");
+    assert_eq!(
+        v1["telemetry"]["heads_superseded"], 0,
+        "first run: no chain"
+    );
     let report_path = std::env::temp_dir().join("canon_e2e_prior_heads_run1.json");
     std::fs::write(&report_path, &run1.stdout).unwrap();
     let report_s = report_path.to_string_lossy().into_owned();
 
     std::fs::write(dir.join("edited.md"), "x = 1/4\n").unwrap();
-    let run2 = canon_demo(&["intake-corpus", &dir_s, "--json", "--prior-heads", &report_s]);
+    let run2 = canon_demo(&[
+        "intake-corpus",
+        &dir_s,
+        "--json",
+        "--prior-heads",
+        &report_s,
+    ]);
     assert_eq!(run2.status.code(), Some(0), "a succession is not a finding");
     let v2: serde_json::Value = serde_json::from_slice(&run2.stdout).unwrap();
 

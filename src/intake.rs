@@ -96,6 +96,15 @@ pub struct IntakeConfig {
     /// run's report ([`prior_heads_from_json`]) — run N's report is run N+1's
     /// prior heads.
     pub prior_heads: BTreeMap<String, String>,
+    /// Canonical-subject aliases (harmonics#328 Card 3d), keyed by the
+    /// *lowercased* verbatim form: `omega_lambda`, `ω_λ` → `omega_lambda`.
+    /// Applied before claims group, so the strict scanner's verbatim
+    /// spellings (`Omega_Lambda = 11/16`) and the lexicon routes' canonical
+    /// subject land on ONE proposition CID instead of a case-split pair.
+    /// A subject with no alias passes through verbatim — `K` and `a_1` are
+    /// not folded, only what the lexicon declares. Empty = verbatim subjects.
+    /// Feed it from `SubjectLexicon::alias_map`.
+    pub subject_aliases: BTreeMap<String, String>,
 }
 
 impl IntakeConfig {
@@ -109,7 +118,17 @@ impl IntakeConfig {
             domains: SubjectDomains::default(),
             policy: PromotionPolicy::default(),
             prior_heads: BTreeMap::new(),
+            subject_aliases: BTreeMap::new(),
         }
+    }
+
+    /// Resolve a route's verbatim subject to its canonical name, or pass it
+    /// through unchanged when the alias map doesn't know it.
+    pub fn canonical_subject(&self, subject: &str) -> String {
+        self.subject_aliases
+            .get(&subject.to_lowercase())
+            .cloned()
+            .unwrap_or_else(|| subject.to_string())
     }
 }
 
@@ -604,7 +623,11 @@ pub fn intake_with_routes(
     for r in routes {
         // Line-sensitive routes read the wire form: the canonicalizer's
         // newline collapse is exactly the noise they cannot survive (#9).
-        let text = if r.structures_raw() { raw_text } else { &canonical };
+        let text = if r.structures_raw() {
+            raw_text
+        } else {
+            &canonical
+        };
         let o = r.structure(doc_id, text, &cfg.corpus_ids);
         merged.typed_edges.extend(o.typed_edges);
         merged.references.extend(o.references);
@@ -701,9 +724,12 @@ pub fn intake_with_routes(
         // Seal the *reduced* identity: `x = 2/6` and `x = 1/3` are one
         // proposition (one CID), not one witness under two forms. The
         // cross-audit still re-reduces independently, so a future
-        // non-reducing emitter is caught rather than trusted.
+        // non-reducing emitter is caught rather than trusted. The subject is
+        // likewise sealed canonical (`Omega_Lambda` → `omega_lambda` when the
+        // config's alias map declares it) — name normalization is a
+        // name-binding act, so it happens here, once, for every route.
         grouped
-            .entry((c.subject.clone(), rat.reduced_string()))
+            .entry((cfg.canonical_subject(&c.subject), rat.reduced_string()))
             .or_insert(ClaimAcc {
                 num: rat.numerator(),
                 den: rat.denominator(),
@@ -1477,7 +1503,10 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
             .prior_heads
             .insert("doc".into(), v1.utterance_cid.clone());
         let same = intake("doc", "x = 1/3\n", &same_cfg).unwrap();
-        assert!(same.head_succession.is_none(), "unchanged doc emits nothing");
+        assert!(
+            same.head_succession.is_none(),
+            "unchanged doc emits nothing"
+        );
 
         // Absent from prior heads: a new doc has no head to supersede.
         let mut other_cfg = cfg.clone();
@@ -1522,7 +1551,10 @@ and a bare mention of delta.md in prose. not_alpha.md is a different id.
         assert_eq!(run2.telemetry.heads_superseded, 1);
         let edited = run2.reports.iter().find(|r| r.doc_id == "edited").unwrap();
         let stable = run2.reports.iter().find(|r| r.doc_id == "stable").unwrap();
-        let s = edited.head_succession.as_ref().expect("edited doc supersedes");
+        let s = edited
+            .head_succession
+            .as_ref()
+            .expect("edited doc supersedes");
         assert_eq!(
             s.old,
             run1.reports

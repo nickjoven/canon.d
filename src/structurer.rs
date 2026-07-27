@@ -28,7 +28,7 @@
 //! cross-audit that promotes agreement across structurers (Unit 2 proper) sits
 //! one layer up and consumes what this route emits.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::bridge::{structure, Structuring};
 use crate::intake::{RatioClaim, Structurer, StructuringOutput};
@@ -88,13 +88,18 @@ impl SubjectLexicon {
             )
             .with_cues("omega_b", &["Ω_b", "Omega_b", "baryon fraction"])
             .with_cues("omega_dm", &["Ω_DM", "Omega_DM", "dark matter fraction"])
+            // Card 3e: the boundary weights. `w_+ = 13/14` sealed under
+            // omega_b in v1 because no w_plus subject existed to claim it.
+            .with_cues("w_plus", &["w_+", "w_plus"])
+            .with_cues("w_minus", &["w_-", "w_minus"])
     }
 
     /// The subject a `Prose` region *binds to the value that immediately follows
-    /// it* — or `None`. Binding is **adjacency-gated** for precision: a cue only
-    /// licenses the next value when the text between the cue and the region's end
-    /// is a pure relational connector (`=`, `∈`, `:`, `equals`, `is`, brackets,
-    /// whitespace). "Ω_Λ = " binds; "Ω_Λ is derived below, and 13/19" does not.
+    /// it* — or `None`. Binding is **assignment-scoped** (v2): a cue only
+    /// licenses the next value when the text between the cue and the region's
+    /// end classifies as a single-expression connector — see
+    /// [`classify_connector`]. "Ω_Λ = " binds; "Ω_Λ is derived below, and
+    /// 13/19" does not; nor does anything across a comma.
     ///
     /// This is the fix for greedy attribution: without it, one `Ω_Λ` on a line
     /// captured *every* later integer on that line (`= 1/1`, `= 13/1`, section
@@ -103,53 +108,70 @@ impl SubjectLexicon {
     ///
     /// Last-cue wins (the cue nearest the value is operative); ties on end
     /// position break toward the longer, more specific cue.
-    fn binding_subject(&self, prose: &str) -> Option<String> {
+    fn binding_subject(&self, prose: &str) -> Option<(String, Connector)> {
         let hay = prose.to_lowercase();
-        let mut best: Option<(usize, usize, &str)> = None; // (end, len, subject)
+        // (end, len, subject, connector)
+        let mut best: Option<(usize, usize, &str, Connector)> = None;
         for (subject, cue) in &self.entries {
             let Some(pos) = hay.rfind(cue.as_str()) else {
                 continue;
             };
             let end = pos + cue.len();
-            if !is_connector(&hay[end..]) {
-                continue; // cue present but not adjacent to the value — no bind
-            }
+            let Some(conn) = classify_connector(&hay[end..], false) else {
+                continue; // cue present but not in one expression with the value
+            };
             let better = match best {
                 None => true,
-                Some((be, bl, _)) => end > be || (end == be && cue.len() > bl),
+                Some((be, bl, _, _)) => end > be || (end == be && cue.len() > bl),
             };
             if better {
-                best = Some((end, cue.len(), subject));
+                best = Some((end, cue.len(), subject, conn));
             }
         }
-        best.map(|(_, _, s)| s.to_string())
+        best.map(|(_, _, s, c)| (s.to_string(), c))
     }
 
     /// The subject a `Prose` region binds to the value that immediately
     /// *precedes* it — the mirror of [`binding_subject`](Self::binding_subject),
     /// for the postfix route ("13/19 = Ω_Λ", "13/19 (dark energy)"). A cue binds
-    /// only when the text from the region start up to the cue is a pure connector,
-    /// so the value genuinely leads into the name. First-cue wins (nearest the
-    /// value); ties break toward the longer cue.
-    fn binding_subject_leading(&self, prose: &str) -> Option<String> {
+    /// only when the text from the region start up to the cue classifies as a
+    /// single-expression connector in the leading direction (mirror assignment
+    /// or parenthetical appositive; a label colon refuses). First-cue wins
+    /// (nearest the value); ties break toward the longer cue.
+    fn binding_subject_leading(&self, prose: &str) -> Option<(String, Connector)> {
         let hay = prose.to_lowercase();
-        let mut best: Option<(usize, usize, &str)> = None; // (start, len, subject)
+        // (start, len, subject, connector)
+        let mut best: Option<(usize, usize, &str, Connector)> = None;
         for (subject, cue) in &self.entries {
             let Some(pos) = hay.find(cue.as_str()) else {
                 continue;
             };
-            if !is_connector(&hay[..pos]) {
-                continue; // cue present but not adjacent to the value — no bind
-            }
+            let Some(conn) = classify_connector(&hay[..pos], true) else {
+                continue; // cue present but not in one expression with the value
+            };
             let better = match best {
                 None => true,
-                Some((bs, bl, _)) => pos < bs || (pos == bs && cue.len() > bl),
+                Some((bs, bl, _, _)) => pos < bs || (pos == bs && cue.len() > bl),
             };
             if better {
-                best = Some((pos, cue.len(), subject));
+                best = Some((pos, cue.len(), subject, conn));
             }
         }
-        best.map(|(_, _, s)| s.to_string())
+        best.map(|(_, _, s, c)| (s.to_string(), c))
+    }
+
+    /// The lexicon as a subject normalizer (harmonics#328 Card 3d): every cue,
+    /// lowercased, mapped to its canonical subject — first binding wins, same
+    /// as attribution. Fed to `IntakeConfig::subject_aliases` so the strict
+    /// scanner's verbatim spellings (`Omega_Lambda = 11/16`) group into the
+    /// same proposition as the lexicon routes' canonical subject, instead of
+    /// sealing a case-split pair of CIDs.
+    pub fn alias_map(&self) -> BTreeMap<String, String> {
+        let mut map = BTreeMap::new();
+        for (subject, cue) in &self.entries {
+            map.entry(cue.clone()).or_insert_with(|| subject.clone());
+        }
+        map
     }
 }
 
@@ -166,32 +188,92 @@ pub enum Route {
 }
 
 impl Route {
-    /// The stable annotator identity this direction seals under.
+    /// The stable annotator identity this direction seals under. v2 =
+    /// assignment-scoped binding + the value gate (harmonics#328 Card 3):
+    /// the judgment procedure changed, so the identity must — a v2 report
+    /// is distinguishable from a v1 report at every sealed structuring.
     pub fn annotator(self) -> &'static str {
         match self {
-            Route::Prefix => "urtext-regex-prefix-v1",
-            Route::Postfix => "urtext-regex-postfix-v1",
+            Route::Prefix => "urtext-regex-prefix-v2",
+            Route::Postfix => "urtext-regex-postfix-v2",
         }
     }
 }
 
-/// True when `tail` (the text between a subject cue and the value) is *only* a
-/// relational connector — so the cue genuinely introduces the value. Connector
-/// words are blanked, then every remaining char must be relational punctuation or
-/// whitespace. Any real content (another word, another number) fails the check,
-/// which is the whole point: it keeps attribution local.
-fn is_connector(tail: &str) -> bool {
+/// What kind of connector sits between a subject cue and its value — the v2
+/// binding evidence (harmonics#328 Card 3a). Carried through to the value
+/// gate: integer (den-1) values bind only through an explicit equality.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Connector {
+    /// The connector contains an explicit `=` (or an equality word). This is
+    /// the "explicit `= N` assignment" den-1 values require (Card 3c).
+    has_eq: bool,
+}
+
+/// Classify the text between a subject cue and the value — `Some` only when
+/// the cue and value sit inside **one assignment expression**. v1 accepted any
+/// short punctuation-and-whitespace gap, which bound across clause boundaries:
+/// `Ω_b = 35/132, Ω_Λ = …` donated Ω_Λ to 35/132 through the comma, and
+/// `2018: Ω_b …` read the year as an Ω_b value through the label colon.
+///
+/// v2 refuses clause punctuation (`,`, `;`) outright, refuses a *leading*
+/// colon (label syntax, not a mirror assignment; a trailing `X: 13/19` is
+/// still a legitimate table form), and requires an explicit relational token —
+/// bare adjacency (`Ω_b 0.12`) no longer attributes. `leading` is the postfix
+/// direction: the text runs from the value up to the cue.
+fn classify_connector(tail: &str, leading: bool) -> Option<Connector> {
+    if tail.contains(',') || tail.contains(';') || (leading && tail.contains(':')) {
+        return None; // clause boundary or label — two expressions, not one
+    }
+    // a genuine connector is short; a long tail is prose that happens to be
+    // punctuation-heavy, not an introduction.
+    if tail.chars().count() > 16 {
+        return None;
+    }
     let mut s = tail.to_string();
-    for w in [
-        "equals", "equal", "is", "in", "of", "the", "fraction", "value", "be",
-    ] {
+    for w in ["equals", "equal", "is", "in"] {
+        s = s.replace(w, "="); // equality/membership words are relations
+    }
+    for w in ["of", "the", "fraction", "value", "be"] {
         s = s.replace(w, " ");
     }
-    // Empty tail = cue sits exactly at the region boundary (tightest adjacency).
-    s.chars().all(|c| c.is_whitespace() || "=∈≈~:[](){}<>,±".contains(c))
-        // a genuine connector is short; a long tail is prose that happens to be
-        // punctuation-heavy, not an introduction.
-        && tail.chars().count() <= 16
+    if !s
+        .chars()
+        .all(|c| c.is_whitespace() || "=∈≈~:[](){}<>±".contains(c))
+    {
+        return None; // real content between cue and value — not adjacent
+    }
+    let relational = s.chars().any(|c| "=∈≈~:".contains(c));
+    // `13/19 (dark energy)` — the parenthetical appositive is postfix's
+    // second legitimate form alongside the mirror assignment `13/19 = Ω_Λ`.
+    let appositive = leading && s.trim_start().starts_with('(');
+    if !relational && !appositive {
+        return None; // v2: adjacency without a relation is not an assignment
+    }
+    Some(Connector {
+        has_eq: s.contains('='),
+    })
+}
+
+/// The v2 value gate (harmonics#328 Card 3b/3c) — exclusions that no subject
+/// cue can override:
+///
+///   * a bare 4-digit integer in year range is a date artifact (`2018: Ω_b …`
+///     sealed `omega_b = 2018/1` under v1), and
+///   * a den-1 witness (`0/1`, `13/1`, `181/1`) binds only through an explicit
+///     `=` — an integer next to a name is usually a count, a section number,
+///     or a date, not the subject's exact rational.
+///
+/// A refused value stays in the output unattributed — a visible coverage gap,
+/// never a confident wrong fact.
+fn attributable(ex: &Extraction, conn: Connector) -> bool {
+    if ex.den == 1 {
+        let bare_year = !ex.spelling.contains('/') && (1000..=2100).contains(&ex.num);
+        if bare_year || !conn.has_eq {
+            return false;
+        }
+    }
+    true
 }
 
 /// One exact rational the route lifted from a span, with the subject it was
@@ -242,18 +324,37 @@ pub fn extract_with(span: &str, lex: &SubjectLexicon, route: Route) -> Vec<Extra
     }
 }
 
+/// True when the region after `i` opens with `%` — the value is a percentage
+/// rendering (`6.7%` sealed `omega_b = 67/10` under v1), not the subject's
+/// exact rational (Card 3b). No cue on either side can rescue it.
+fn percent_follows(regs: &[urtext::Region], i: usize) -> bool {
+    regs.get(i + 1).is_some_and(|r| r.text.starts_with('%'))
+}
+
 /// Prefix walk: the cue in the *preceding* prose licenses the *next* value.
 fn extract_prefix(input: &str, lex: &SubjectLexicon) -> Vec<Extraction> {
     // `pending` is the subject the immediately preceding prose region licensed for
     // the very next value — consumed once. A cue does not persist across a line;
     // each value needs its own adjacent cue or it is unattributed (precision-first).
-    let mut pending: Option<String> = None;
+    let regs = regions(input);
+    let mut pending: Option<(String, Connector)> = None;
     let mut out = Vec::new();
-    for region in regions(input) {
+    for (i, region) in regs.iter().enumerate() {
         match region.kind {
             RegionKind::Prose => pending = lex.binding_subject(&region.text),
-            RegionKind::Number => match to_rational(&region) {
-                Some(rat) => out.push(rat_extraction(pending.take(), &rat, &region.text)),
+            RegionKind::Number => match to_rational(region) {
+                Some(rat) => {
+                    let bound = pending.take();
+                    let mut ex = rat_extraction(None, &rat, &region.text);
+                    if !percent_follows(&regs, i) {
+                        if let Some((subject, conn)) = bound {
+                            if attributable(&ex, conn) {
+                                ex.subject = Some(subject);
+                            }
+                        }
+                    }
+                    out.push(ex);
+                }
                 None => pending = None, // a non-lifting number still breaks adjacency
             },
             _ => pending = None, // any other region (Quantity, math) breaks adjacency
@@ -279,7 +380,15 @@ fn extract_postfix(input: &str, lex: &SubjectLexicon) -> Vec<Extraction> {
             }
             RegionKind::Prose => {
                 if let Some(mut ex) = held.take() {
-                    ex.subject = lex.binding_subject_leading(&region.text);
+                    // a leading `%` marks the held value as a percentage —
+                    // excluded before any cue in this region can bind it.
+                    if !region.text.starts_with('%') {
+                        if let Some((subject, conn)) = lex.binding_subject_leading(&region.text) {
+                            if attributable(&ex, conn) {
+                                ex.subject = Some(subject);
+                            }
+                        }
+                    }
                     out.push(ex);
                 }
             }
@@ -564,6 +673,128 @@ mod tests {
             .into_iter()
             .collect::<Vec<_>>(),
             "all three routes attributed"
+        );
+    }
+
+    #[test]
+    fn a_comma_never_donates_a_subject_across_assignments() {
+        // The Card 3a bug: on a multi-assignment line, v1's postfix walk bound
+        // the FIRST assignment's value to the SECOND assignment's subject
+        // through the comma (audit_punch_list_2026-04.md:17 sealed
+        // omega_lambda = 35/132). v2 refuses clause punctuation.
+        let line = "Ω_b = 35/132, Ω_Λ = 13/19";
+        let post = extract_with(line, &lex(), Route::Postfix);
+        assert!(
+            post.iter().all(|e| e.subject.is_none()),
+            "no postfix bind crosses the comma: {post:?}"
+        );
+        // ...while the prefix walk still reads both assignments correctly.
+        let pre = extract_with(line, &lex(), Route::Prefix);
+        let bound: Vec<_> = pre
+            .iter()
+            .filter_map(|e| e.subject.as_deref().map(|s| (s, e.value.as_str())))
+            .collect();
+        assert_eq!(
+            bound,
+            vec![("omega_b", "35/132"), ("omega_lambda", "13/19")]
+        );
+    }
+
+    #[test]
+    fn a_year_label_is_not_a_value() {
+        // The Card 3b bug: "2018: Ω_b …" sealed omega_b = 2018/1 — the label
+        // colon read as a mirror assignment. v2 refuses the leading colon AND
+        // the bare 4-digit integer, independently.
+        let ex = extract_with("2018: Ω_b = 13/264 holds", &lex(), Route::Postfix);
+        let year = ex.iter().find(|e| e.value == "2018/1").unwrap();
+        assert_eq!(year.subject, None, "a year never attributes");
+        // The year is excluded even through an explicit assignment.
+        let ex = extract("Ω_b = 2018", &lex());
+        assert_eq!(ex[0].subject, None, "4-digit bare integer, even with `=`");
+        // ...and the same line's genuine assignment still binds via prefix.
+        let ex = extract("2018: Ω_b = 13/264 holds", &lex());
+        let bound: Vec<_> = ex.iter().filter(|e| e.subject.is_some()).collect();
+        assert_eq!(bound.len(), 1);
+        assert_eq!(bound[0].value, "13/264");
+        assert_eq!(bound[0].subject.as_deref(), Some("omega_b"));
+    }
+
+    #[test]
+    fn a_percentage_is_not_an_exact_rational() {
+        // The Card 3b bug: "6.7%" sealed omega_b = 67/10 — a percentage
+        // rendering read as the subject's value. v2 excludes %-context on
+        // both routes; the value stays visible as unattributed.
+        let ex = extract("Ω_b = 0.12% residual", &lex());
+        assert!(
+            ex.iter().all(|e| e.subject.is_none()),
+            "prefix: % blocks the bind: {ex:?}"
+        );
+        let ex = extract_with("0.12% (baryon fraction)", &lex(), Route::Postfix);
+        assert!(
+            ex.iter().all(|e| e.subject.is_none()),
+            "postfix: % blocks the bind: {ex:?}"
+        );
+    }
+
+    #[test]
+    fn integers_bind_only_through_an_explicit_eq() {
+        // Card 3c: den-1 witnesses (0/1, 13/1, 181/1) were junk — an integer
+        // next to a name is usually a count or a section number. v2 requires
+        // an explicit `=` for den-1; other relations don't suffice.
+        let ex = extract("Ω_Λ ∈ 13", &lex());
+        assert_eq!(ex[0].subject, None, "∈ does not license an integer");
+        let ex = extract_with("13 (dark energy)", &lex(), Route::Postfix);
+        assert_eq!(
+            ex[0].subject, None,
+            "appositive does not license an integer"
+        );
+        // The explicit assignment form still works (and 13 is no year).
+        let ex = extract("Ω_Λ = 13", &lex());
+        assert_eq!(ex[0].subject.as_deref(), Some("omega_lambda"));
+        assert_eq!(ex[0].value, "13/1");
+    }
+
+    #[test]
+    fn bare_adjacency_no_longer_attributes() {
+        // v1 accepted a whitespace-only gap ("Ω_b 0.12"), which is how prose
+        // mentions became sealed values. v2 requires a relational token.
+        let ex = extract("Ω_b 3/25 in passing", &lex());
+        assert_eq!(ex[0].subject, None, "no relation, no bind");
+    }
+
+    #[test]
+    fn the_boundary_weights_have_subjects() {
+        // Card 3e: w_+ = 13/14 sealed under omega_b in v1 because no w_plus
+        // subject existed to claim it.
+        let ex = extract("w_+ = 13/14", &lex());
+        assert_eq!(ex[0].subject.as_deref(), Some("w_plus"));
+        assert_eq!(ex[0].value, "13/14");
+        let ex = extract("w_- = 1/14", &lex());
+        assert_eq!(ex[0].subject.as_deref(), Some("w_minus"));
+    }
+
+    #[test]
+    fn ratio_scanner_subjects_fold_into_canonical() {
+        // Card 3d: `Omega_Lambda = 11/16` (ratio/v1, verbatim subject) and
+        // `Ω_Λ = 11/16` (lexicon route, canonical subject) must seal ONE
+        // proposition, not a case-split pair.
+        use crate::intake::{intake_with_routes, IntakeConfig, RatioRoute, Structurer};
+
+        let doc = "Omega_Lambda = 11/16\nΩ_Λ = 11/16\n";
+        let prefix = LexiconRatioRoute::harmonics(Route::Prefix);
+        let routes: [&dyn Structurer; 2] = [&RatioRoute, &prefix];
+        let mut cfg = IntakeConfig::new("t");
+        cfg.subject_aliases = SubjectLexicon::harmonics().alias_map();
+        let r = intake_with_routes("doc", doc, &cfg, &routes).unwrap();
+
+        assert_eq!(r.propositions.len(), 1, "one subject, one proposition");
+        assert_eq!(r.propositions[0].subject, "omega_lambda");
+        assert_eq!(
+            r.propositions[0].routes,
+            vec![
+                "ratio/v1".to_string(),
+                Route::Prefix.annotator().to_string()
+            ]
         );
     }
 
