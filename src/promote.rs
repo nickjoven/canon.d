@@ -138,13 +138,25 @@ impl SubjectDomains {
         self
     }
 
-    /// The cosmology domains for the harmonics corpus: `Ω_Λ` is a density
-    /// fraction, so its value is in the open interval `(0, 1)`. A value law, not a
-    /// corpus label — it constrains *what Ω_Λ can be*, independent of any file.
+    /// The cosmology domains for the harmonics corpus — one law per lexicon
+    /// subject (harmonics#328 follow-through: the witness covered only Ω_Λ,
+    /// so `omega_b = 2018/1` and `67/10` sailed through a gate that already
+    /// existed). Density fractions live in the OPEN interval `(0, 1)`; the
+    /// boundary weights saturate AT their endpoints (`w_- = 1` is the
+    /// corpus's own structural claim), so theirs is closed. Value laws, not
+    /// corpus labels — they constrain what each quantity *can be*,
+    /// independent of any file, which quarantines an entire junk family
+    /// (years, percentages, partition shares) no matter how the binding
+    /// that produced it goes wrong.
     pub fn harmonics() -> Self {
         let zero = Rat::new(0, 1).expect("0/1");
         let one = Rat::new(1, 1).expect("1/1");
-        Self::new().with("omega_lambda", DomainRange::open(zero, one))
+        Self::new()
+            .with("omega_lambda", DomainRange::open(zero, one))
+            .with("omega_b", DomainRange::open(zero, one))
+            .with("omega_dm", DomainRange::open(zero, one))
+            .with("w_plus", DomainRange::closed(zero, one))
+            .with("w_minus", DomainRange::closed(zero, one))
     }
 
     /// Witness a `(subject, num/den)` value. `num`/`den` are `i128` (the
