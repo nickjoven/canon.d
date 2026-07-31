@@ -2,7 +2,12 @@ name: ci
 
 on:
   push:
-    branches: [main, quantum-tier]
+    # unit2-wiring is the live integration branch (PRs #10-#14 merged
+    # there); excluding it meant merges landed with zero CI — the
+    # 2026-07-30 review's finding. NB the nightly cron still cannot
+    # fire until workflows exist on the DEFAULT branch (schedule events
+    # read main); that resolves at the merge-to-main milestone.
+    branches: [main, quantum-tier, unit2-wiring]
   pull_request:
   schedule:
     - cron: "0 7 * * *"   # nightly: re-derive the constitution root, fail on drift
@@ -37,6 +42,50 @@ jobs:
         run: |
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
+
+  # Secrets are invisible to job-level `if:`, so a tiny job lifts the
+  # presence bit into an output the prose job can gate on. When the
+  # token is absent the prose job shows SKIPPED in the checks list —
+  # visible, unlike a green no-op (the substrate-audit-cron lesson:
+  # an unarmed run must not be indistinguishable from a passing one).
+  prose-token:
+    runs-on: ubuntu-latest
+    outputs:
+      present: ${{ steps.probe.outputs.present }}
+    steps:
+      - id: probe
+        env:
+          T: ${{ secrets.URTEXT_READ_TOKEN }}
+        run: echo "present=${{ env.T != '' }}" >> "$GITHUB_OUTPUT"
+
+  test-prose:
+    # The prose wire and the golden claim-set snapshot
+    # (tests/golden_intake.rs) — the pre-merge oracle for route
+    # behavior. The 2026-07-30 review found this ran in NO CI anywhere
+    # (full-stack.yml is off-default-branch, variable-gated, and
+    # token-less); this job is the fix. urtext is private, so it needs
+    # the URTEXT_READ_TOKEN repo secret (same shape as harmonics':
+    # fine-grained PAT, Contents read-only on nickjoven/urtext).
+    # Fork PRs see no secrets and skip — same-repo PRs, pushes, and
+    # dispatches gate for real.
+    needs: prose-token
+    if: needs.prose-token.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: canon.d
+      - uses: actions/checkout@v4
+        with:
+          repository: nickjoven/urtext
+          token: ${{ secrets.URTEXT_READ_TOKEN }}
+          path: urtext
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: canon.d
+      - name: Test with the prose feature (includes the golden snapshot)
+        working-directory: canon.d
+        run: cargo test --features prose
 
   heartbeat:
     # The release contract: the constitution must self-host and the four golden
