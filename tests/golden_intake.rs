@@ -16,8 +16,10 @@
 //! behavioral review. When it moves the table unexpectedly, that is the
 //! catch working.
 //!
-//! Runs wherever the prose feature runs (full-stack.yml in CI, plus any
-//! local `cargo test --features prose`); compiles to nothing without it.
+//! Runs in ci.yml's `test-prose` job (gated on the URTEXT_READ_TOKEN
+//! secret; skips VISIBLY when absent) and in any local
+//! `cargo test --features prose`; compiles to nothing without the
+//! feature.
 #![cfg(feature = "prose")]
 
 use canon_d::intake::{intake_corpus_with_routes, prose_routes, Structurer};
