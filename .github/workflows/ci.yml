@@ -43,33 +43,14 @@ jobs:
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
 
-  # Secrets are invisible to job-level `if:`, so a tiny job lifts the
-  # presence bit into an output the prose job can gate on. When the
-  # token is absent the prose job shows SKIPPED in the checks list —
-  # visible, unlike a green no-op (the substrate-audit-cron lesson:
-  # an unarmed run must not be indistinguishable from a passing one).
-  prose-token:
-    runs-on: ubuntu-latest
-    outputs:
-      present: ${{ steps.probe.outputs.present }}
-    steps:
-      - id: probe
-        env:
-          T: ${{ secrets.URTEXT_READ_TOKEN }}
-        run: echo "present=${{ env.T != '' }}" >> "$GITHUB_OUTPUT"
-
   test-prose:
     # The prose wire and the golden claim-set snapshot
     # (tests/golden_intake.rs) — the pre-merge oracle for route
-    # behavior. The 2026-07-30 review found this ran in NO CI anywhere
-    # (full-stack.yml is off-default-branch, variable-gated, and
-    # token-less); this job is the fix. urtext is private, so it needs
-    # the URTEXT_READ_TOKEN repo secret (same shape as harmonics':
-    # fine-grained PAT, Contents read-only on nickjoven/urtext).
-    # Fork PRs see no secrets and skip — same-repo PRs, pushes, and
-    # dispatches gate for real.
-    needs: prose-token
-    if: needs.prose-token.outputs.present == 'true'
+    # behavior. The 2026-07-30 review found this ran in NO CI
+    # anywhere; urtext going public (2026-08-01, MIT) then dissolved
+    # the token ceremony the first fix needed: a plain checkout, no
+    # secret, no presence-gating, runs unconditionally on every PR
+    # and push — forks included.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,7 +59,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: nickjoven/urtext
-          token: ${{ secrets.URTEXT_READ_TOKEN }}
           path: urtext
       - uses: Swatinem/rust-cache@v2
         with:
